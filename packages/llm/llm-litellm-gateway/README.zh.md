@@ -1,0 +1,48 @@
+# `@deepseek-ai/dsh-llm-litellm-gateway`
+
+[English](README.md) | 中文
+
+这是 DeepSeek Harness 的可热插拔 LiteLLM 网关策略插件。插件复用 `@deepseek-ai/dsh-llm-pi-ai` 的 OpenAI Chat Completions 传输、流式输出、工具调用、回放转换与凭据解析。上游提供方、复杂度路由、重试和 fallback 由 LiteLLM 管理。
+
+```yaml
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+- id: llm-litellm-gateway
+  name: '@deepseek-ai/dsh-llm-litellm-gateway'
+  config:
+    baseURL: http://127.0.0.1:4000/v1
+    apiKeyEnv: LITELLM_MASTER_KEY
+    retryPolicy:
+      mode: normal
+      maxRetries: 0
+```
+
+默认提供方路由是 `litellm-gateway`，提供 `deepseek-main`、`dsh-cost`（`Cost Saving`）、`dsh-balanced`（`Balanced`）与 `dsh-quality`（`High Quality`）。部署可以替换 `models` 及 `routes.cost`、`routes.balanced`、`routes.quality` 别名。以此网关作为部署默认值时，应把 `@deepseek-ai/dsh-agent-default-model` 配置为 `{ provider: litellm-gateway, model: dsh-balanced }`；模型选择仍由该独立服务管理。
+
+`apiKeyEnv` 是凭据引用，不是密钥值。每次请求先通过可选的凭据服务解析它，否则通过启动环境解析。默认引用是 `LITELLM_MASTER_KEY`。凭据缺失或不可用时，请求会在网络 I/O 前失败。
+
+settings namespace 是 `llm-litellm-gateway`，变更在下一次请求生效。提供方 id 或重试策略变化会原子替换路由注册；端点、凭据和模型变化则由每个操作的一份不可变 profile 快照解析。卸载插件会移除其路由和可配置提供方目录条目。
+
+DSH 重试策略只允许 `normal` 且 `maxRetries: 0`。pi-ai SDK 同样只尝试一次，因此只有 LiteLLM 可以重试或选择 fallback。除非部署另行提供认证、网络隔离和访问控制，否则网关应只绑定 `127.0.0.1`。
+
+## 模型体验
+
+### LiteLLM 虚拟模型请求
+
+#### 模型看到的内容
+
+所选 LiteLLM 虚拟模型通过 OpenAI Chat Completions 接收 `GenerateOptions.system`、`GenerateOptions.messages`、`GenerateOptions.tools`、模型能力允许的图片与采样值。本插件不增加模型可见的路由指令。DSH 记录所选虚拟模型 id；实际后端模型、档位、分类原因与 fallback 链由 LiteLLM 日志管理。
+
+#### Token 影响
+
+本插件不增加提示词 token。LiteLLM 启发式复杂度路由不会增加分类模型调用；其他 LiteLLM 分类器配置与提供方重试可能产生不归入 DSH 所选虚拟模型身份的额外用量。
+
+#### KV Cache 影响
+
+本插件保留传给适配器的组装请求前缀。更改所选虚拟模型、网关路由结果、端点或模型目录可能选择不同的提供方 cache；cache 可用性、affinity 与淘汰仍由 LiteLLM 和上游提供方管理。
+
+## 已知限制与暂缓事项
+
+- **不开放快速回答**：DSH 尚无原生路径，无法用零前缀模型调用替换完整 agent（智能体）步骤，同时记录实际模型、独立 `quickAnswer` 用量和可回放的会话事件。`llm/stream` 包装层会把响应错误归因到所选完整任务别名，因此插件通过不提供该功能来保持禁用。
+- **实际路由在 LiteLLM 中审计**：DSH 记录 `dsh-cost`、`dsh-balanced` 或 `dsh-quality`，不记录网关选择的内部 `easy`、`strong` 或 `premium` 后端。
+- **模型目录来自配置而非发现**：四个默认值是部署假设；网关验证完成后，必须在 settings 中写入上下文窗口、输出上限与其他虚拟模型。

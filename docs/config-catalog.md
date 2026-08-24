@@ -989,6 +989,56 @@ Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicy
 
 Source: [`packages/llm/llm-deepseek/src/index.ts:106`](../packages/llm/llm-deepseek/src/index.ts)
 
+<a id="deepseek-aidsh-llm-litellm-gateway"></a>
+
+## `@deepseek-ai/dsh-llm-litellm-gateway`
+
+Requires: `llm`
+
+```ts config-catalog
+/** Plugin configuration. */
+export interface Config {
+  /** Harness provider route. */
+  provider?: string
+  /** Local/private LiteLLM endpoint. */
+  baseURL?: string
+  /** Environment-variable credential reference. */
+  apiKeyEnv?: string
+  /** Models exposed by the endpoint. */
+  models?: LiteLlmModel[]
+  /** User-facing route aliases. */
+  routes?: Partial<LiteLlmRoutes>
+  /** Provider retry policy; LiteLLM owns retry/fallback, so maxRetries must be zero. */
+  retryPolicy?: RetryPolicyConfig
+}
+
+/** A virtual model advertised by the LiteLLM gateway. */
+export interface LiteLlmModel {
+  /** Model id accepted by LiteLLM, for example `dsh-balanced`. */
+  id: string
+  /** Optional selector label. */
+  name?: string
+  /** Context capacity supplied by the gateway deployment. */
+  contextWindow?: number
+  /** Default output cap supplied by the gateway deployment. */
+  maxTokens?: number
+}
+
+/** User preference aliases sent to LiteLLM's complexity router. */
+export interface LiteLlmRoutes {
+  /** Cost-saving alias. */
+  cost: string
+  /** Balanced alias and default. */
+  balanced: string
+  /** Quality-first alias. */
+  quality: string
+}
+```
+
+Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+
+Source: [`packages/llm/llm-litellm-gateway/src/config.ts:32`](../packages/llm/llm-litellm-gateway/src/config.ts)
+
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
