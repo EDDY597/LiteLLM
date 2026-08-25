@@ -1,2 +1,6 @@
-README.md: a777d78a7406899b2c136f16ae3ec23d4ba6e660
-README.zh.md: cd5700558f226872dd3eed587edcd9be4bd1b5fb
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/llm/llm-litellm-gateway/README.md
+README.md: 2f088f01aa8864ffb71bcac6d43821ae00d96fac
+README.zh.md: c0c2de25f4debb54db08159bf11da663fcb147ee

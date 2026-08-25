@@ -25,6 +25,12 @@ settings namespace 是 `llm-litellm-gateway`，变更在下一次请求生效。
 
 DSH 重试策略只允许 `normal` 且 `maxRetries: 0`。pi-ai SDK 同样只尝试一次，因此只有 LiteLLM 可以重试或选择 fallback。除非部署另行提供认证、网络隔离和访问控制，否则网关应只绑定 `127.0.0.1`。
 
+## Web 设置卡片
+
+安装浏览器端后，Plugins 设置页会出现专用 LiteLLM 卡片。卡片通过 `llm-litellm-gateway` Settings Scope 暂存并保存提供方 id、网关地址、凭据引用、模型目录和三个路由别名。路由区域把「成本优先」「均衡」「高质量」绘制为虚拟模型到别名的连线，不会把 LiteLLM 内部后端档位伪装成 DSH 模型 id。
+
+同一卡片还包含进程内用量面板，按 DSH 选择的虚拟模型展示请求结果以及互不重叠的输入、输出和 cache token 桶，支持刷新并提供空状态。Host 重启后计数清零；持久化 spend 和实际上游模型仍由 LiteLLM 管理。
+
 ## 模型体验
 
 ### LiteLLM 虚拟模型请求

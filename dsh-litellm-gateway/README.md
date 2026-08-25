@@ -25,6 +25,12 @@ Settings are registered under `llm-litellm-gateway` and apply to the next reques
 
 The DSH retry policy is restricted to `normal` with `maxRetries: 0`. The pi-ai SDK also performs one attempt, so LiteLLM is the only layer that may retry or select a fallback. The gateway should bind to `127.0.0.1` unless the deployment separately supplies authentication, network isolation, and access control.
 
+## Web settings card
+
+When the browser half is installed, the Plugins settings page adds a dedicated LiteLLM card. It stages the provider id, gateway URL, credential reference, model catalog, and three route aliases through the `llm-litellm-gateway` Settings Scope. The route section draws Cost Saving, Balanced, and High Quality as virtual-model-to-alias edges; it does not expose LiteLLM's internal backend tiers as DSH model ids.
+
+The same card includes a process-local usage dashboard. It reports request outcomes and disjoint input/output/cache token buckets by the virtual model selected by DSH, with a refresh action and an empty state. Counters reset when the Host process restarts; persistent spend and the actual upstream model remain LiteLLM concerns.
+
 ## Model Experience
 
 ### LiteLLM virtual-model request

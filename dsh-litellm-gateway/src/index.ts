@@ -9,9 +9,12 @@ import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deeps
 import type { PiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import { Config as Schema, DEFAULT_CONFIG, resolveConfig } from './config.ts'
 import type { Config, ResolvedConfig } from './config.ts'
+import { LiteLlmGatewayRemote, LiteLlmUsageLedger } from './usage.ts'
 
 export { Config } from './config.ts'
 export type { LiteLlmModel, LiteLlmRoutes, ResolvedConfig } from './config.ts'
+export type { LiteLlmUsageSnapshot, LiteLlmUsageRow } from './usage.ts'
+export { LiteLlmGatewayRemote, LiteLlmUsageLedger } from './usage.ts'
 
 /** Cordis plugin name. */
 export const name = 'llm-litellm-gateway'
@@ -90,6 +93,24 @@ export function apply(ctx: Context, config: Config): void {
     auth: { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) },
     resolveAttachments: () => ctx.get('attachments'),
   })
+
+  const usage = new LiteLlmUsageLedger()
+  ctx.plugin(LiteLlmGatewayRemote, usage)
+  ctx.on('llm/stream', (request, next) => (async function* () {
+    const chunks: import('@deepseek-ai/dsh-llm').StreamChunk[] = []
+    let thrown = false
+    try {
+      for await (const chunk of next()) {
+        chunks.push(chunk)
+        yield chunk
+      }
+    } catch (error: unknown) {
+      thrown = true
+      throw error
+    } finally {
+      usage.record(request, chunks, thrown)
+    }
+  })())
 
   let registration: AdapterRegistrationHandle | undefined
   let registrationFacts: unknown
