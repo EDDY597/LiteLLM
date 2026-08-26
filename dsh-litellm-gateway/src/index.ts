@@ -81,8 +81,9 @@ export function apply(ctx: Context, config: Config): void {
   const resolveApiKey = async (_provider: string, resolved: import('@deepseek-ai/dsh-llm-pi-ai').ResolvedPiAiProviderProfile): Promise<string> => {
     const ref = resolved.apiKeyEnv
     if (ref === undefined) throw new LlmError('llm-litellm-gateway: apiKeyEnv is required', 'MISSING_CREDENTIAL')
-    const hit = ctx.get('credentials') !== undefined
-      ? await ctx.credentials.resolve(ref)
+    const credentials = ctx.get('credentials')
+    const hit = credentials !== undefined
+      ? await credentials.resolve(ref)
       : launchEnvironmentOf(ctx).get(ref)
     if (hit !== undefined && hit.value.length > 0) return assertUsableApiKey(hit.value, 'llm-litellm-gateway', ref)
     throw new LlmError(`llm-litellm-gateway: no credential resolved from ${ref}`, 'MISSING_CREDENTIAL')

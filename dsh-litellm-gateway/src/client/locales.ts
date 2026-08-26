@@ -1,8 +1,8 @@
 /** LiteLLM gateway settings-card dictionaries. */
 
 export const zh = {
-  title: 'LiteLLM Gateway', description: '配置网关、路由策略和运行用量。',
-  provider: 'Provider ID', baseURL: 'Gateway Base URL', apiKeyEnv: 'API Key 环境变量',
+  title: 'LiteLLM Gateway', description: '配置网关、虚拟模型、路由策略和运行用量。',
+  provider: 'Provider ID', baseURL: 'Gateway Base URL', apiKeyEnv: 'Gateway Master Key 凭据引用（所有模型共用）',
   models: '模型目录（JSON）', modelsHint: '每项至少包含 id，可选 name、contextWindow、maxTokens。',
   routes: '路由可视化', cost: '成本优先', balanced: '均衡', quality: '高质量',
   target: '目标虚拟模型', routingNote: 'DSH 只发送虚拟模型名，具体上游选择由 LiteLLM 决定。',
@@ -14,8 +14,8 @@ export const zh = {
 } as const
 
 export const en = {
-  title: 'LiteLLM Gateway', description: 'Configure the gateway, routing policy, and live usage.',
-  provider: 'Provider ID', baseURL: 'Gateway Base URL', apiKeyEnv: 'API key environment variable',
+  title: 'LiteLLM Gateway', description: 'Configure the gateway, virtual models, routing policy, and live usage.',
+  provider: 'Provider ID', baseURL: 'Gateway Base URL', apiKeyEnv: 'Gateway Master Key credential reference (shared by all models)',
   models: 'Model catalog (JSON)', modelsHint: 'Each item needs id; name, contextWindow, and maxTokens are optional.',
   routes: 'Route visualization', cost: 'Cost saving', balanced: 'Balanced', quality: 'High quality',
   target: 'Target virtual model', routingNote: 'DSH sends virtual model names; LiteLLM owns upstream selection.',
@@ -34,4 +34,3 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'llm-litellm-gateway': LiteLlmLocaleKey
   }
 }
-
