@@ -152,6 +152,28 @@ export interface ModelCatalogFailure {
   message: string
 }
 
+/**
+ * One provider's advisory routing slice, declared by the provider itself and
+ * passed through verbatim by the host. Selection surfaces use it to present
+ * route tiers separately from directly addressable models; selecting either
+ * still submits the plain provider/model pair. Absent from the response when
+ * no mounted provider publishes a slice.
+ */
+export interface SessionRoutingSection {
+  /** Provider route id the entries select. */
+  provider: string
+  /** Provider display name for the section heading. */
+  displayName: string
+  /** Whether the provider declared a shared credential reference at all. */
+  credentialRequired: boolean
+  /** Whether that credential currently resolves — always true when not required. */
+  credentialReady: boolean
+  /** Routing entries in provider-preferred display order. */
+  routes: ModelCatalogModel[]
+  /** Directly addressable models in provider-preferred display order. */
+  models: ModelCatalogModel[]
+}
+
 /** Detached model-directory snapshot for one session. */
 export interface SessionModels {
   /** Model selection for the session's next assembled step. */
@@ -169,6 +191,8 @@ export interface SessionModels {
   groups: ModelProviderGroup[]
   /** Provider-local failures; successful groups remain usable. */
   failures: ModelCatalogFailure[]
+  /** Provider-declared routing slices; absent when none is published. */
+  routing?: SessionRoutingSection[]
 }
 
 /** A client-requested mutation of one still-pending queue item. */

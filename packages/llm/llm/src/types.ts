@@ -158,6 +158,43 @@ export interface ModelModalityMap {
 export type ModelModality = ModelModalityMap[keyof ModelModalityMap]
 
 /**
+ * One model entry inside a provider-published catalog slice. Identical in
+ * spirit to the session directory's display entry; kept separate because this
+ * vocabulary belongs to the provider declaration, not the wire snapshot.
+ */
+export interface LlmCatalogEntry {
+  /** Model id accepted by the provider route. */
+  id: string
+  /** Display name for selection surfaces. */
+  name: string
+  /** Optional one-line description rendered under the name. */
+  description?: string
+}
+
+/**
+ * Provider-declared advisory grouping of its own catalog, consumed by
+ * model-selection surfaces that distinguish routing aliases from direct
+ * models. Purely presentational metadata: selection still submits the plain
+ * provider/model pair and stays validated by the owning adapter. Omit the
+ * whole field when a provider publishes no such grouping.
+ */
+export interface LlmProviderCatalog {
+  /**
+   * Routing entries in preferred display order — aliases whose upstream
+   * resolution the provider owns (for example cost/balanced/quality tiers).
+   */
+  routes: readonly LlmCatalogEntry[]
+  /** Directly addressable models in preferred display order. */
+  models: readonly LlmCatalogEntry[]
+  /**
+   * Environment-variable credential reference shared by every route and model
+   * of this provider, when one is required. Surfaces use it to report read
+   * availability without touching the value itself.
+   */
+  credentialEnv?: string
+}
+
+/**
  * One provider route an adapter plugin can activate through configuration,
  * whether or not the route is currently registered. Configuration surfaces
  * merge this directory with `listProviders()` to offer every configurable
@@ -184,6 +221,13 @@ export interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /**
+   * The provider's own advisory grouping of its catalog for selection
+   * surfaces; absent when the provider publishes none. Entries may reference
+   * models the adapter does not currently list — membership there stays the
+   * only dispatch fact.
+   */
+  catalog?: LlmProviderCatalog
 }
 
 /**

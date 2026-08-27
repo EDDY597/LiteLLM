@@ -1,22 +1,26 @@
 /**
  * ModelSelect: the composer's named model seat (`conversation.input.model`).
- * Two-level selection per figma 496:26454's MenuDropdown: the root menu is
- * the Model / Effort row pair (label + current value + a right chevron),
- * each drilling into its own list — the provider-grouped model list over
- * the shared directory, and the effort levels. The trigger (313:14108's
- * ToggleButton) shows both: model name + effort in the caption tone.
- * Data and submission ride the SAME per-session ModelDirectory as the
- * /model popup; exact-model reasoning metadata and the selected effort come
- * from the Host rather than a client-owned vocabulary. A rejected selection
- * announces through the shared transient Toast anchored to the composer
- * card; the in-menu strip with Retry remains the catalog-load surface.
+ * Two-level selection per figma 496:26454's MenuDropdown. The root menu lists
+ * the directory's buckets — Routes / Route models (a provider-declared
+ * routing slice riding `SessionModels.routing`) and DSH models (every other
+ * provider group) — each drilling into its own list. Reasoning-effort levels
+ * merge into the model lists themselves: they render as an indented subgroup
+ * directly beneath whichever model row is currently selected.
+ *
+ * Data and submission ride the SAME per-session ModelDirectory as the /model
+ * popup; exact-model reasoning metadata and the selected effort come from the
+ * Host rather than a client-owned vocabulary. A rejected selection announces
+ * through the shared transient Toast anchored to the composer card; the
+ * in-menu strip with Retry remains the catalog-load surface.
  */
 import {
-  useEffect, useId, useMemo, useRef, useState, useSyncExternalStore,
-  type KeyboardEvent, type FocusEvent,
+  Fragment, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore,
+  type KeyboardEvent, type FocusEvent, type ReactNode,
 } from 'react'
 import clsx from 'clsx'
-import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type {
+  ModelCatalogModel, ModelReasoningEffort, ModelSelection, SessionRoutingSection,
+} from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
   IconWarningOutline16, Toast,
@@ -25,8 +29,8 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
-/** Which pane the dropdown shows: the two-row root or one drilled-in list. */
-type Pane = 'root' | 'model' | 'effort'
+/** Which pane the dropdown shows: the bucket row set or one drilled-in list. */
+type Pane = 'root' | 'routes' | 'routeModels' | 'dsh'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
@@ -34,6 +38,30 @@ interface EffortChoice {
   effort: string | undefined
   label: string
   description?: string
+}
+
+/**
+ * Effort levels offered for one exact model route, in display order. A route
+ * without an adapter-configured default leads with the provider-default row.
+ */
+function effortsOf(reasoning: NonNullable<ModelCatalogModel['reasoning']>, providerDefaultLabel: string): readonly EffortChoice[] {
+  return [
+    ...reasoning.defaultEffort === undefined
+      ? [{ key: 'provider-default', effort: undefined, label: providerDefaultLabel }]
+      : [],
+    ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
+      key: `effort:${effort.id}`,
+      effort: effort.id,
+      label: effort.name,
+      ...effort.description === undefined ? {} : { description: effort.description },
+    })),
+  ]
+}
+
+/** One routing entry paired with its owning slice (availability lives there). */
+interface RoutingEntry {
+  section: SessionRoutingSection
+  model: ModelCatalogModel
 }
 
 /**
@@ -76,6 +104,18 @@ export function ModelSelect(
           : { reasoningEffort: model.reasoning.defaultEffort },
       } satisfies ModelSelection,
     }))), [state.groups])
+  const routing = state.routing
+  const routeEntries = useMemo<RoutingEntry[]>(() =>
+    routing.flatMap(section => section.routes.map(model => ({ section, model }))), [routing])
+  const directEntries = useMemo<RoutingEntry[]>(() =>
+    routing.flatMap(section => section.models.map(model => ({ section, model }))), [routing])
+  const dshGroups = useMemo(() =>
+    state.groups.filter(group => !routing.some(section => section.provider === group.id)),
+  [state.groups, routing])
+
+  const matchesCurrent = (provider: string, modelId: string): boolean =>
+    state.current !== null && state.current.provider === provider && state.current.model === modelId
+
   const selectedIndex = state.current === null
     ? -1
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
@@ -87,19 +127,6 @@ export function ModelSelect(
     : effectiveEffort === undefined
       ? t('effort.providerDefault')
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
-  const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
-    ? []
-    : [
-      ...reasoning.defaultEffort === undefined
-        ? [{ key: 'provider-default', effort: undefined, label: t('effort.providerDefault') }]
-        : [],
-      ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
-        key: `effort:${effort.id}`,
-        effort: effort.id,
-        label: effort.name,
-        ...effort.description === undefined ? {} : { description: effort.description },
-      })),
-    ], [reasoning, t])
   const busy = state.status === 'selecting'
 
   const reload = (): void => {
@@ -202,19 +229,189 @@ export function ModelSelect(
     void select(selection).then(settleSelection)
   }
 
-  const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
-  const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
-  const triggerAria = currentChoice === undefined
+  // The route and direct-model names resolve against their declared slices;
+  // everything else falls through the plain groups lookup.
+  const routedName = (entries: readonly RoutingEntry[]): string | undefined =>
+    entries.find(({ section, model }) => matchesCurrent(section.provider, model.id))?.model.name
+  const routeLabel = routedName(routeEntries)
+  const directLabel = routedName(directEntries)
+  const usesRoutingEntry = routeLabel !== undefined || directLabel !== undefined
+  const routingLabel = routeLabel ?? directLabel ?? ''
+  const modelLabel = usesRoutingEntry ? routingLabel : currentChoice?.model.name ?? t('trigger.fallback')
+  const unsetLabel = t('cell.unset')
+
+  const triggerAria = currentChoice === undefined && !usesRoutingEntry
     ? t('trigger.selectAria')
     : effortLabel === undefined
       ? t('trigger.aria', { model: modelLabel })
       : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
+
+  /**
+   * Indented effort subgroup rendered directly beneath the currently selected
+   * model row when that route exposes reasoning levels.
+   */
+  const renderEffortSubrows = (provider: string, model: ModelCatalogModel): ReactNode => {
+    if (model.reasoning === undefined || !matchesCurrent(provider, model.id)) return null
+    const levels = effortsOf(model.reasoning, t('effort.providerDefault'))
+    return (
+      <div className={css.effortGroup} role="group" aria-label={t('menu.effort')}>
+        {levels.map(level => (
+          <button
+            ref={itemRef()}
+            type="button"
+            role="menuitemradio"
+            aria-checked={effectiveEffort === level.effort}
+            className={clsx(css.option, css.effortOption, effectiveEffort === level.effort && css.selected)}
+            key={level.key}
+            disabled={busy}
+            onClick={() => { chooseEffort(level.effort) }}
+          >
+            <span className={css.optionCopy}>
+              <span className={css.modelName}>{level.label}</span>
+              {level.description !== undefined && (
+                <span className={css.description}>{level.description}</span>
+              )}
+            </span>
+            <span className={css.check}>
+              {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
+            </span>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  /** One selectable routing entry row; credential-gated entries stay visible but inert. */
+  const renderRoutingItem = ({ section, model }: RoutingEntry): ReactNode => {
+    const gated = section.credentialRequired && !section.credentialReady
+    const selected = matchesCurrent(section.provider, model.id)
+    return (
+      <Fragment key={`${section.provider}/${model.id}`}>
+        <button
+          ref={itemRef()}
+          type="button"
+          role="menuitemradio"
+          aria-checked={selected}
+          className={clsx(css.option, selected && css.selected)}
+          title={model.name}
+          disabled={busy || gated}
+          onClick={() => { choose({ provider: section.provider, model: model.id }) }}
+        >
+          <span className={css.optionCopy}>
+            <span className={css.modelName}>{model.name}</span>
+            {model.description !== undefined && (
+              <span className={css.description}>{model.description}</span>
+            )}
+          </span>
+          <span className={css.check}>
+            {selected ? <IconCheckOutline16 /> : null}
+          </span>
+        </button>
+        {renderEffortSubrows(section.provider, model)}
+      </Fragment>
+    )
+  }
+
+  /** One DSH provider-group row list; the selected model may expose its effort subgroup. */
+  const renderDshGroup = (group: (typeof dshGroups)[number]): ReactNode => {
+    const headingId = `${id}-${group.id}`
+    return (
+      <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
+        <div className={css.groupTitle} id={headingId}>{group.name}</div>
+        {group.models.map((model) => {
+          const selected = matchesCurrent(group.id, model.id)
+          return (
+            <Fragment key={model.id}>
+              <button
+                ref={itemRef()}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                className={clsx(css.option, selected && css.selected)}
+                title={model.name}
+                disabled={busy}
+                onClick={() => { choose({ provider: group.id, model: model.id }) }}
+              >
+                <span className={css.optionCopy}>
+                  <span className={css.modelName}>{model.name}</span>
+                  {model.description !== undefined && (
+                    <span className={css.description}>{model.description}</span>
+                  )}
+                </span>
+                <span className={css.check}>
+                  {selected ? <IconCheckOutline16 /> : null}
+                </span>
+              </button>
+              {renderEffortSubrows(group.id, model)}
+            </Fragment>
+          )
+        })}
+      </section>
+    )
+  }
+
+  /** Shared routing-pane body: one optional heading per declaring provider. */
+  const renderRoutingPane = (entries: readonly RoutingEntry[]): ReactNode => {
+    const anyGated = entries.some(({ section }) => section.credentialRequired && !section.credentialReady)
+    const multiSection = routing.length > 1
+    let previous: SessionRoutingSection | undefined
+    return (
+      <>
+        {anyGated && <div className={css.hint}>{t('routing.noCredential')}</div>}
+        <div className={clsx(css.groups, 'scrollable')}>
+          {entries.map((entry) => {
+            const startsSection = multiSection
+              && (previous === undefined || previous.provider !== entry.section.provider)
+            previous = entry.section
+            return (
+              <Fragment key={`${entry.section.provider}/${entry.model.id}`}>
+                {startsSection && (
+                  <div className={css.groupTitle}>{entry.section.displayName}</div>
+                )}
+                {renderRoutingItem(entry)}
+              </Fragment>
+            )
+          })}
+        </div>
+      </>
+    )
+  }
+
   itemRefs.current = []
   let itemIndex = 0
   const itemRef = () => {
     const at = itemIndex++
     return (node: HTMLButtonElement | null) => { itemRefs.current[at] = node }
   }
+
+  /** Catalog-load status strip shared by every drilled pane. */
+  const catalogIssues = (
+    <>
+      {state.status === 'loading' && (
+        <div className={css.status}>{t('status.loading')}</div>
+      )}
+      {state.error !== null && lastActionRef.current === 'load' && (
+        <div className={css.error}>
+          <span>{t('error.action', { message: state.error })}</span>
+          <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
+        </div>
+      )}
+      {state.failures.map(failure => (
+        <div className={css.warning} key={failure.id}>
+          <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
+          <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
+        </div>
+      ))}
+    </>
+  )
+
+  const rootCell = (paneKey: Exclude<Pane, 'root'>, label: string, value: string) => (
+    <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane(paneKey) }}>
+      <span className={css.cellLabel}>{label}</span>
+      <span className={css.cellValue}>{value}</span>
+      <IconChevronRightOutline14 className={css.cellChevron} />
+    </button>
+  )
 
   return (
     <div ref={rootRef} className={css.root} onKeyDown={onRootKeyDown} onBlur={onBlur}>
@@ -226,7 +423,7 @@ export function ModelSelect(
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
-        title={triggerLabel}
+        title={triggerLabel(modelLabel, effortLabel)}
         disabled={locked}
         onClick={() => {
           if (open) {
@@ -251,112 +448,28 @@ export function ModelSelect(
         >
           {pane === 'root' && (
             <>
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model') }}>
-                <span className={css.cellLabel}>{t('menu.model')}</span>
-                <span className={css.cellValue}>{modelLabel}</span>
-                <IconChevronRightOutline14 className={css.cellChevron} />
-              </button>
-              {reasoning !== undefined && (
-                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('effort') }}>
-                  <span className={css.cellLabel}>{t('menu.effort')}</span>
-                  <span className={css.cellValue}>{effortLabel}</span>
-                  <IconChevronRightOutline14 className={css.cellChevron} />
-                </button>
-              )}
+              {routeEntries.length > 0 && rootCell('routes', t('menu.routes'), routeLabel ?? unsetLabel)}
+              {directEntries.length > 0 && rootCell('routeModels', t('menu.routeModels'), directLabel ?? unsetLabel)}
+              {rootCell('dsh', t('menu.dshModels'), usesRoutingEntry ? unsetLabel : modelLabel)}
             </>
           )}
 
-          {pane === 'model' && (
+          {pane === 'routes' && catalogIssues}
+          {pane === 'routes' && routeEntries.length > 0 && renderRoutingPane(routeEntries)}
+
+          {pane === 'routeModels' && catalogIssues}
+          {pane === 'routeModels' && directEntries.length > 0 && renderRoutingPane(directEntries)}
+
+          {pane === 'dsh' && (
             <>
-              {state.status === 'loading' && (
-                <div className={css.status}>{t('status.loading')}</div>
-              )}
-              {state.error !== null && lastActionRef.current === 'load' && (
-                <div className={css.error}>
-                  <span>{t('error.action', { message: state.error })}</span>
-                  <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
-                </div>
-              )}
-              {state.failures.map(failure => (
-                <div className={css.warning} key={failure.id}>
-                  <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
-                  <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
-                </div>
-              ))}
+              {catalogIssues}
               <div className={clsx(css.groups, 'scrollable')}>
-                {state.groups.map((group) => {
-                  const headingId = `${id}-${group.id}`
-                  return (
-                    <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
-                      <div className={css.groupTitle} id={headingId}>{group.name}</div>
-                      {group.models.map((model) => {
-                        const selected = state.current?.provider === group.id && state.current.model === model.id
-                        return (
-                          <button
-                            ref={itemRef()}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            className={clsx(css.option, selected && css.selected)}
-                            key={model.id}
-                            title={model.name}
-                            disabled={busy}
-                            onClick={() => { choose({ provider: group.id, model: model.id }) }}
-                          >
-                            <span className={css.optionCopy}>
-                              <span className={css.modelName}>{model.name}</span>
-                              {model.description !== undefined && (
-                                <span className={css.description}>{model.description}</span>
-                              )}
-                            </span>
-                            <span className={css.check}>
-                              {selected ? <IconCheckOutline16 /> : null}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </section>
-                  )
-                })}
+                {dshGroups.map(renderDshGroup)}
               </div>
-              {state.status === 'ready' && choices.length === 0 && (
+              {state.status === 'ready' &&
+                dshGroups.every(group => group.models.length === 0) && (
                 <div className={css.empty}>{t('empty.models')}</div>
               )}
-            </>
-          )}
-
-          {pane === 'effort' && (
-            <>
-              {state.error !== null && lastActionRef.current === 'load' && (
-                <div className={css.error}>
-                  <span>{t('error.action', { message: state.error })}</span>
-                  <button type="button" className={css.retry} onClick={reload}>{t('action.reload')}</button>
-                </div>
-              )}
-              {effortChoices.length === 0
-                ? <div className={css.empty}>{t('empty.efforts')}</div>
-                : effortChoices.map(level => (
-                  <button
-                    ref={itemRef()}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={effectiveEffort === level.effort}
-                    className={clsx(css.option, effectiveEffort === level.effort && css.selected)}
-                    key={level.key}
-                    disabled={busy}
-                    onClick={() => { chooseEffort(level.effort) }}
-                  >
-                    <span className={css.optionCopy}>
-                      <span className={css.modelName}>{level.label}</span>
-                      {level.description !== undefined && (
-                        <span className={css.description}>{level.description}</span>
-                      )}
-                    </span>
-                    <span className={css.check}>
-                      {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
-                    </span>
-                  </button>
-                ))}
             </>
           )}
         </div>
@@ -372,4 +485,9 @@ export function ModelSelect(
       )}
     </div>
   )
+}
+
+/** Trigger title mirrors the visible caption pair. */
+function triggerLabel(model: string, effort: string | undefined): string {
+  return effort === undefined ? model : `${model} · ${effort}`
 }

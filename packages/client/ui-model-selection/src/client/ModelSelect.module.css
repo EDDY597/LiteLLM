@@ -268,3 +268,32 @@
   flex: 0 0 auto;
   color: var(--dsw-alias-label-tertiary);
 }
+
+/* Read-availability note for providers whose shared credential did not
+   resolve; rendered once above the gated entries of a routing pane. */
+.hint {
+  padding: 6px 10px;
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Effort subgroup merged under the selected model row (menu root no longer
+   carries its own row): indented compact radios, one budget-toner lighter. */
+.effortGroup {
+  display: flex;
+  flex-direction: column;
+  margin: -4px 0 2px;
+  padding: 0 0 0 22px;
+}
+
+.effortOption {
+  min-height: 30px;
+  border-radius: 8px;
+}
+
+.effortOption .modelName {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}

@@ -8,6 +8,7 @@ import fileReferencesRemote from '@deepseek-ai/dsh-file-reference/remote'
 import pluginInventoryRemote from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
+import litellmGatewayRemote from '@deepseek-ai/dsh-llm-litellm-gateway/remote'
 import type { TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 
 export type { TypertClientRemote as ClientRemote } from '@deepseek-ai/dsh-typert-protocol'
@@ -18,6 +19,7 @@ export type {} from '@deepseek-ai/dsh-goal/remote'
 export type {} from '@deepseek-ai/dsh-host-plugin-inventory/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
+export type {} from '@deepseek-ai/dsh-llm-litellm-gateway/remote'
 // The forwarded-event allowlist's selection seat: without it in the consumer's
 // compilation face `TypertRemoteEvent` is `never` and every `$on` call fails.
 export type { ApiRemoteForwardedEvent } from '../types.ts'
@@ -39,9 +41,9 @@ export type {} from '@deepseek-ai/dsh-settings/types'
 export type {
   ClientResponse, ConfigurableProviderView, ConnectionHandle, ConnectionSinks, ContentBlock,
   CredentialView, DirectoryListing, DiscoveredModelView, HistoryEntry, HostFrame, IApiClient,
-  MessageId, ModelCatalogFailure, ModelProviderGroup, ModelReasoningEffort, ModelSelection,
+  MessageId, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoningEffort, ModelSelection,
   MuxFrame, PromptContentPart, QuestionResponsePayload, QueueAction, RpcError, RpcId, RpcReceipt,
-  RpcRequest, RpcResponse, RpcResult, SessionId, SessionModels, SessionSearchItem,
+  RpcRequest, RpcResponse, RpcResult, SessionId, SessionModels, SessionRoutingSection, SessionSearchItem,
   SessionSummary, SettingsNamespaceView, SettingsPathOpView, SkillEntry, StreamChunk,
   SubagentAddress, SubagentCatalog, JobView, ToolCallView, ToolEventView, ToolResultView,
   WorkspaceId, WorkspaceView,
@@ -116,6 +118,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     for (const contribution of [
       commandsRemote, goalsRemote, dynamicRemote, fileReferencesRemote,
       pluginInventoryRemote, messageFeedbackRemote, sessionReferencesRemote,
+      litellmGatewayRemote,
     ]) {
       disposers.push(await ctx.remote.$mount(contribution))
     }

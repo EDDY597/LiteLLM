@@ -6,7 +6,7 @@
  * either entry is what the other shows next.
  */
 import type {
-  IApiClient, ModelCatalogFailure, ModelProviderGroup, ModelSelection, SessionId, SessionModels,
+  IApiClient, ModelCatalogFailure, ModelProviderGroup, ModelSelection, SessionId, SessionModels, SessionRoutingSection,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -27,6 +27,8 @@ export interface ModelDirectoryState {
   groups: readonly ModelProviderGroup[]
   /** Provider-local failures from the last load; usable groups stay usable. */
   failures: readonly ModelCatalogFailure[]
+  /** Provider-declared routing slices (empty when none is published). */
+  routing: readonly SessionRoutingSection[]
   /** Lifecycle of the in-flight operation. */
   status: 'idle' | 'loading' | 'ready' | 'selecting' | 'error'
   /** Whole-request or selection failure text; null when none. */
@@ -37,7 +39,7 @@ export interface ModelDirectoryState {
 export class ModelDirectory {
   /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
-    current: null, routable: null, groups: [], failures: [], status: 'idle', error: null,
+    current: null, routable: null, groups: [], failures: [], routing: [], status: 'idle', error: null,
   })
 
   /** Latest operation wins; an older response never overwrites a newer one. */
@@ -73,12 +75,13 @@ export class ModelDirectory {
       this.store.update((s) => { s.status = 'error'; s.error = `${result.error.code}: ${result.error.message}` })
       throw new Error(`session.models failed: ${result.error.code}: ${result.error.message}`)
     }
-    const { current, routable, groups, failures } = result.value
+    const { current, routable, groups, failures, routing } = result.value
     this.store.update((s) => {
       s.current = current
       s.routable = routable
       s.groups = groups
       s.failures = failures
+      s.routing = routing ?? []
       s.status = 'ready'
       s.error = null
     })
@@ -134,6 +137,7 @@ export class ModelDirectory {
       s.routable = null
       s.groups = []
       s.failures = []
+      s.routing = []
       s.status = 'idle'
       s.error = null
     })
