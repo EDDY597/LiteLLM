@@ -3,15 +3,20 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
-import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmCatalogEntry, LlmConfigurableProvider, LlmProviderCatalog } from '@deepseek-ai/dsh-llm'
 import { authContextFrom, credentialStoreFrom, PiAiAdapter, resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { PiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import { Config as Schema, DEFAULT_CONFIG, resolveConfig } from './config.ts'
 import type { Config, ResolvedConfig } from './config.ts'
+import { LiteLlmPlansReader } from './plans.ts'
+import { LiteLlmGatewayRemote, LiteLlmUsageLedger } from './usage.ts'
 
 export { Config } from './config.ts'
-export type { LiteLlmModel, LiteLlmRoutes, ResolvedConfig } from './config.ts'
+export type { LiteLlmModel, LiteLlmPlan, LiteLlmRoutes, ResolvedConfig } from './config.ts'
+export type { LiteLlmPlanStatus, LiteLlmPlansSnapshot } from './plans.ts'
+export type { LiteLlmUsageSnapshot, LiteLlmUsageRow, LiteLlmActiveModel } from './usage.ts'
+export { LiteLlmGatewayRemote, LiteLlmUsageLedger } from './usage.ts'
 
 /** Cordis plugin name. */
 export const name = 'llm-litellm-gateway'
@@ -48,6 +53,35 @@ function modelProfiles(options: ResolvedConfig): PiAiProviderProfile {
   }
 }
 
+/** Display name of one route alias, taken from its catalog entry when declared there. */
+function routeEntry(options: ResolvedConfig, id: string): LlmCatalogEntry {
+  const declared = options.models.find(model => model.id === id)
+  return { id, name: declared?.name ?? id }
+}
+
+/**
+ * The provider's advisory grouping for selection surfaces: the routing
+ * aliases (cost/balanced/quality order; tiers aimed at one id collapse to a
+ * single entry) plus the directly addressable models — declared catalog
+ * entries minus the aliases. Pure metadata — selection still submits plain
+ * provider/model pairs.
+ */
+function providerCatalog(options: ResolvedConfig): LlmProviderCatalog {
+  const aliasIds = new Set(Object.values(options.routes))
+  const routes: LlmCatalogEntry[] = []
+  for (const alias of [options.routes.cost, options.routes.balanced, options.routes.quality]) {
+    if (routes.some(route => route.id === alias)) continue
+    routes.push(routeEntry(options, alias))
+  }
+  return {
+    routes,
+    models: options.models
+      .filter(model => !aliasIds.has(model.id))
+      .map(model => ({ id: model.id, name: model.name ?? model.id })),
+    credentialEnv: options.apiKeyEnv,
+  }
+}
+
 /** Install the LiteLLM route and dynamic settings. */
 export function apply(ctx: Context, config: Config): void {
   const entry: Config = {
@@ -75,14 +109,18 @@ export function apply(ctx: Context, config: Config): void {
     const resolved = options()
     return resolveProfiles({ [resolved.provider]: modelProfiles(resolved) })
   }
-  const resolveApiKey = async (_provider: string, resolved: import('@deepseek-ai/dsh-llm-pi-ai').ResolvedPiAiProviderProfile): Promise<string> => {
-    const ref = resolved.apiKeyEnv
-    if (ref === undefined) throw new LlmError('llm-litellm-gateway: apiKeyEnv is required', 'MISSING_CREDENTIAL')
-    const hit = ctx.get('credentials') !== undefined
-      ? await ctx.credentials.resolve(ref)
+  const resolveCredentialValue = async (ref: import('@deepseek-ai/dsh-credentials').CredentialRef): Promise<string> => {
+    const credentials = ctx.get('credentials')
+    const hit = credentials !== undefined
+      ? await credentials.resolve(ref)
       : launchEnvironmentOf(ctx).get(ref)
     if (hit !== undefined && hit.value.length > 0) return assertUsableApiKey(hit.value, 'llm-litellm-gateway', ref)
     throw new LlmError(`llm-litellm-gateway: no credential resolved from ${ref}`, 'MISSING_CREDENTIAL')
+  }
+  const resolveApiKey = async (_provider: string, resolved: import('@deepseek-ai/dsh-llm-pi-ai').ResolvedPiAiProviderProfile): Promise<string> => {
+    const ref = resolved.apiKeyEnv
+    if (ref === undefined) throw new LlmError('llm-litellm-gateway: apiKeyEnv is required', 'MISSING_CREDENTIAL')
+    return resolveCredentialValue(ref)
   }
   const adapter = new PiAiAdapter({
     profiles,
@@ -90,6 +128,29 @@ export function apply(ctx: Context, config: Config): void {
     auth: { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) },
     resolveAttachments: () => ctx.get('attachments'),
   })
+
+  const plansReader = new LiteLlmPlansReader({
+    baseURL: () => options().baseURL,
+    apiKey: () => resolveCredentialValue(options().apiKeyEnv),
+  })
+
+  const usage = new LiteLlmUsageLedger()
+  ctx.plugin(LiteLlmGatewayRemote, { ledger: usage, readPlans: () => plansReader.snapshot(options().plans) })
+  ctx.on('llm/stream', (request, next) => (async function* () {
+    const chunks: import('@deepseek-ai/dsh-llm').StreamChunk[] = []
+    let thrown = false
+    try {
+      for await (const chunk of next()) {
+        chunks.push(chunk)
+        yield chunk
+      }
+    } catch (error: unknown) {
+      thrown = true
+      throw error
+    } finally {
+      usage.record(request, chunks, thrown)
+    }
+  })())
 
   let registration: AdapterRegistrationHandle | undefined
   let registrationFacts: unknown
@@ -107,6 +168,7 @@ export function apply(ctx: Context, config: Config): void {
       displayName: 'LiteLLM Gateway',
       settingsNs: NS,
       settingsPath: [],
+      catalog: providerCatalog(resolved),
     }]
     if (directory === undefined) directory = ctx.llm.registerConfigurableProviders(entries)
     else if (!deepEqualJson(entries, directoryFacts)) directory.replace(entries)

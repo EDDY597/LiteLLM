@@ -128,7 +128,9 @@ export function pathOps(
 /** The editor layout the owning namespace selects. */
 function layoutOf(ns: string): EditorLayout {
   if (ns === 'llm-deepseek') return 'deepseek'
-  if (ns === 'llm-pi-ai') return 'pi-ai'
+  // LiteLLM speaks the same OpenAI-compatible profile language as pi-ai:
+  // one gateway credential, a base URL, and a configurable virtual-model catalog.
+  if (ns === 'llm-pi-ai' || ns === 'llm-litellm-gateway') return 'pi-ai'
   return 'unknown'
 }
 

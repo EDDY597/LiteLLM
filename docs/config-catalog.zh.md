@@ -1010,6 +1010,8 @@ export interface Config {
   models?: LiteLlmModel[]
   /** User-facing route aliases. */
   routes?: Partial<LiteLlmRoutes>
+  /** Billing entries shown by the web card's balance panel. */
+  plans?: LiteLlmPlan[]
   /** Provider retry policy; LiteLLM owns retry/fallback, so maxRetries must be zero. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -1035,11 +1037,31 @@ export interface LiteLlmRoutes {
   /** Quality-first alias. */
   quality: string
 }
+
+/**
+ * One LiteLLM billing object whose consumed amount and cap the web card shows.
+ * The gateway accounts spend itself, so an entry sees exactly what LiteLLM
+ * tracks — upstream-native coding-plan quotas stay invisible until they are
+ * mirrored as budgets in the gateway.
+ */
+export interface LiteLlmPlan {
+  /** Stable unique id within `plans`; displayed when no name is set. */
+  id: string
+  /** Optional display name. */
+  name?: string
+  /** Which LiteLLM billing object backs this entry. */
+  kind: 'key' | 'budget'
+  /**
+   * Object id understood by the gateway: the api key value (`sk-…`) for
+   * `kind: 'key'`, or the `budget_id` for `kind: 'budget'`.
+   */
+  target: string
+}
 ```
 
 依赖：[`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-来源：[`packages/llm/llm-litellm-gateway/src/config.ts:32`](../packages/llm/llm-litellm-gateway/src/config.ts)
+来源：[`packages/llm/llm-litellm-gateway/src/config.ts:52`](../packages/llm/llm-litellm-gateway/src/config.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 

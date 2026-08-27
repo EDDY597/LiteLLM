@@ -25,6 +25,20 @@ Settings are registered under `llm-litellm-gateway` and apply to the next reques
 
 The DSH retry policy is restricted to `normal` with `maxRetries: 0`. The pi-ai SDK also performs one attempt, so LiteLLM is the only layer that may retry or select a fallback. The gateway should bind to `127.0.0.1` unless the deployment separately supplies authentication, network isolation, and access control.
 
+## Web settings card
+
+When the browser half is installed, the Plugins settings page adds a dedicated LiteLLM card. It stages the provider id, gateway URL, credential reference, model catalog, and three route aliases through the `llm-litellm-gateway` Settings Scope. The route section draws Cost Saving, Balanced, and High Quality as virtual-model-to-alias edges; it does not expose LiteLLM's internal backend tiers as DSH model ids.
+
+The same card includes a process-local usage dashboard. It reports request outcomes and disjoint input/output/cache token buckets by the virtual model selected by DSH, with a refresh action and an empty state. Counters reset when the Host process restarts; persistent spend and the actual upstream model remain LiteLLM concerns.
+
+The same refresh also fills the Plans & balances panel. Configure `plans` entries naming the LiteLLM billing objects to track — `{ id, name?, kind: 'key' | 'budget', target }` where `target` is the api key value or `budget_id` — and each refresh queries the gateway's admin endpoints (`/key/info`, `/budget/info`) with the same master-key credential as requests. Per-entry failures list under the table while sound rows stay readable; a missing credential fails the whole read loudly. The panel shows spend against the cap plus the remainder and reset time when a budget exists — exactly what LiteLLM accounts, nothing more.
+
+The plugin also contributes a plain-text badge to the composer tool row's left seat (`conversation.input.left`, beside the attach control). Once at least one completed response carried an upstream model name, the badge shows that concrete id — for example `qwen3.5-plus` — under the `badge.tip` tooltip; it renders nothing before then and refreshes when the owning session finishes a turn. The value rides this plugin's own `litellmGateway.activeModel` Remote over the shared ledger above; nothing but the name crosses the wire.
+
+## Model selection surface
+
+The provider publishes its declared routing slice through the configurable-provider directory (`LlmConfigurableProvider.catalog`): the cost/balanced/quality aliases in order (tiers aimed at one id collapse to one entry), the direct models left after removing those aliases, and the shared `credentialEnv` reference. Selection surfaces use this to split the model menu into Routes, Route models, and DSH models panes and to mark entries unavailable while the credential reference does not resolve. Selecting any entry still submits the plain provider/model pair; membership stays advisory and validation belongs to the adapter as before.
+
 ## Model Experience
 
 ### LiteLLM virtual-model request
@@ -44,5 +58,7 @@ The plugin preserves the assembled request prefix passed to the adapter. Changin
 ## Known Limitations and Deferred Work
 
 - **Quick answer is not exposed** — DSH has no native path that can replace a full Agent step with a zero-prefix model call while recording the actual model, independent `quickAnswer` usage, and replayable session events. An `llm/stream` wrapper would misattribute the response to the selected full-task alias, so the plugin leaves this feature disabled by absence.
-- **Actual routing is audited in LiteLLM** — DSH records `dsh-cost`, `dsh-balanced`, or `dsh-quality`, not the internal `easy`, `strong`, or `premium` backend selected by the gateway.
+- **Upstream visibility is best-effort and process-wide** — the composer badge names whatever backend the last completed gateway response reported, whenever one session finished such a request; it is not per-session attribution, and a response without a recognizable pi-ai replay envelope leaves the previous reading. LiteLLM logs remain the authority for tiers, classification reasons, and fallback chains.
+- **Balances reflect LiteLLM's own accounting** — the Plans & balances panel reads the gateway's key/budget records, so an upstream coding plan whose quota is not mirrored as a LiteLLM budget stays invisible, and admin endpoints are derived from `baseURL` by dropping a trailing `/v1`.
 - **The model catalog is configured, not discovered** — the four defaults are deployment assumptions; context windows, output limits, and additional virtual models must be written in settings after gateway validation.
+- **Route labels follow configuration** — route entries display the `models[].name` of the matching alias or fall back to the alias id itself; localized labels live in the settings card only.

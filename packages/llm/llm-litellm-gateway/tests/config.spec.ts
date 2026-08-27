@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CONFIG, resolveConfig } from '../src/config.ts'
+import type { Config } from '../src/config.ts'
 
 describe('LiteLLM gateway configuration', () => {
   it('resolves the local endpoint, route aliases, and zero-retry policy', () => {
@@ -35,5 +36,32 @@ describe('LiteLLM gateway configuration', () => {
       retryPolicy: { mode: 'normal', maxRetries: 0 },
     })
     expect(resolved.models.filter(model => model.id === 'economy')).toHaveLength(1)
+  })
+
+  it('defaults to no plan entries and detaches configured copies', () => {
+    expect(resolveConfig({ retryPolicy: { mode: 'normal', maxRetries: 0 } }).plans).toEqual([])
+    const plans = [{ id: 'p1', kind: 'key' as const, target: 'sk-main' }]
+    const resolved = resolveConfig({ retryPolicy: { mode: 'normal', maxRetries: 0 }, plans })
+    expect(resolved.plans).toEqual(plans)
+    plans[0]!.target = 'mutated'
+    expect(resolved.plans[0]).toMatchObject({ target: 'sk-main' })
+  })
+
+  it('rejects malformed plan entries loudly', () => {
+    const base = { retryPolicy: { mode: 'normal' as const, maxRetries: 0 } }
+    // The bad kind reaches resolveConfig only from settings/config data, so the
+    // compile-time union is deliberately bypassed here.
+    const teamPlans = [{ id: 'p', kind: 'team', target: 'x' }] as unknown as NonNullable<Config['plans']>
+    expect(() => resolveConfig({ ...base, plans: [{ id: 'p', kind: 'key', target: 'a' }, { id: 'p', kind: 'budget', target: 'b' }] }))
+      .toThrow('duplicate plan "p"')
+    expect(() => resolveConfig({ ...base, plans: teamPlans }))
+      .toThrow('kind must be "key" or "budget"')
+    expect(() => resolveConfig({ ...base, plans: [{ id: 'p', kind: 'budget', target: '' }] }))
+      .toThrow('target must be non-empty')
+  })
+
+  it('rejects an empty credential reference before anything resolves keys', () => {
+    expect(() => resolveConfig({ apiKeyEnv: '', retryPolicy: { mode: 'normal', maxRetries: 0 } }))
+      .toThrow('apiKeyEnv must be non-empty')
   })
 })

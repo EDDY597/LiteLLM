@@ -4,7 +4,7 @@
     "rootDir": "src",
     "outDir": "lib/types"
   },
-  "include": ["src"],
+  "files": ["src/config.ts", "src/index.ts", "src/invariant.ts", "src/plans.ts", "src/types.ts", "src/usage.ts"],
   "references": [
     { "path": "../../../vendor/cosmokit" },
     { "path": "../../../vendor/cordis" },
@@ -15,6 +15,7 @@
     { "path": "../../runtime-diagnostics/invariants" },
     { "path": "../../llm/llm" },
     { "path": "../../llm/llm-pi-ai" },
-    { "path": "../../settings/settings" }
+    { "path": "../../settings/settings" },
+    { "path": "../../typert/protocol" }
   ]
 }

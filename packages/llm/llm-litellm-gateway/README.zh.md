@@ -25,6 +25,20 @@ settings namespace 是 `llm-litellm-gateway`，变更在下一次请求生效。
 
 DSH 重试策略只允许 `normal` 且 `maxRetries: 0`。pi-ai SDK 同样只尝试一次，因此只有 LiteLLM 可以重试或选择 fallback。除非部署另行提供认证、网络隔离和访问控制，否则网关应只绑定 `127.0.0.1`。
 
+## Web 设置卡片
+
+安装浏览器端后，Plugins 设置页会出现专用 LiteLLM 卡片。卡片通过 `llm-litellm-gateway` Settings Scope 暂存并保存提供方 id、网关地址、凭据引用、模型目录和三个路由别名。路由区域把「成本优先」「均衡」「高质量」绘制为虚拟模型到别名的连线，不会把 LiteLLM 内部后端档位伪装成 DSH 模型 id。
+
+同一卡片还包含进程内用量面板，按 DSH 选择的虚拟模型展示请求结果以及互不重叠的输入、输出和 cache token 桶，支持刷新并提供空状态。Host 重启后计数清零；持久化 spend 和实际上游模型仍由 LiteLLM 管理。
+
+同一刷新动作还会填充「套餐与余额」面板。在配置里添加 `plans` 条目即可跟踪 LiteLLM 计费对象——`{ id, name?, kind: 'key' | 'budget', target }`，其中 `target` 是 api key 值或 `budget_id`——每次刷新会用与请求相同的 master key 凭据查询网关管理端点（`/key/info`、`/budget/info`）。单条失败会列在表格下方而不影响其他行；凭据缺失会让整次读取高声失败。面板展示已用、上限以及存在预算时的剩余额度和重置时间——即 LiteLLM 自己记账的内容，不多不少。
+
+插件还会在 composer 工具行左端座位（`conversation.input.left`，附件控件旁）贡献一个纯文本徽标。只要最近一次完成的响应带出了上游模型名，徽标就会显示该具体 id（例如 `qwen3.5-plus`），悬停提示为 `badge.tip`；在此之前不渲染任何内容，并在所属会话结束一轮后刷新。取值走本插件自己的 `litellmGateway.activeModel` Remote，与上方共享账本；跨线传输的只有模型名。
+
+## 模型选择界面
+
+提供方通过可配置提供方目录（`LlmConfigurableProvider.catalog`）发布自己的路由切片：按顺序的 cost/balanced/quality 别名（指向同一 id 的档位合并为一条）、剔除别名后的直连模型，以及共享的 `credentialEnv` 引用。选择界面据此把模型菜单拆为「路由」「路由模型」「DSH模型」三组，并在凭据引用未解析时把相关条目标记为不可用。选择任一条目仍提交普通的 provider/model 对；目录成员资格保持 advisory，校验仍归适配器。
+
 ## 模型体验
 
 ### LiteLLM 虚拟模型请求
@@ -44,5 +58,7 @@ DSH 重试策略只允许 `normal` 且 `maxRetries: 0`。pi-ai SDK 同样只尝�
 ## 已知限制与暂缓事项
 
 - **不开放快速回答**：DSH 尚无原生路径，无法用零前缀模型调用替换完整 agent（智能体）步骤，同时记录实际模型、独立 `quickAnswer` 用量和可回放的会话事件。`llm/stream` 包装层会把响应错误归因到所选完整任务别名，因此插件通过不提供该功能来保持禁用。
-- **实际路由在 LiteLLM 中审计**：DSH 记录 `dsh-cost`、`dsh-balanced` 或 `dsh-quality`，不记录网关选择的内部 `easy`、`strong` 或 `premium` 后端。
+- **上游可见性是尽力而为且进程级**：composer 徽标显示的是最近一次完成的网关响应所报告的后端模型，只要有任一会话完成过这样的请求；它不是按会话的归因，且响应缺少可识别的 pi-ai 回放封套时会保留上一次读数。档位、分类原因与 fallback 链仍以 LiteLLM 日志为准。
+- **余额只反映 LiteLLM 自身记账**：「套餐与余额」面板读取网关的 key/budget 记录，上游 coding plan 若未在 LiteLLM 中镜像为 budget 则不可见；管理端点由 `baseURL` 去掉尾部 `/v1` 推导。
 - **模型目录来自配置而非发现**：四个默认值是部署假设；网关验证完成后，必须在 settings 中写入上下文窗口、输出上限与其他虚拟模型。
+- **路由标签跟随配置**：路由条目显示匹配别名的 `models[].name`，缺失时退回别名 id 本身；本地化文案仅存在于设置卡片。
