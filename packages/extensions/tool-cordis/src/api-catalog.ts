@@ -3606,8 +3606,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmCallConfigAdapterDefaults {\n    reasoningEffort?: true;\n    maxTokens?: true;\n}',
   },
   {
+    name: 'LlmCatalogEntry',
+    declaration: 'export interface LlmCatalogEntry {\n    id: string;\n    name: string;\n    description?: string;\n}',
+  },
+  {
     name: 'LlmConfigurableProvider',
-    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n}',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    catalog?: LlmProviderCatalog;\n}',
   },
   {
     name: 'LlmDiscoveredModel',
@@ -3632,6 +3636,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmModelReasoningInfo',
     declaration: 'export interface LlmModelReasoningInfo {\n    efforts: readonly LlmReasoningEffortInfo[];\n    defaultEffort?: ReasoningEffortId;\n}',
+  },
+  {
+    name: 'LlmProviderCatalog',
+    declaration: 'export interface LlmProviderCatalog {\n    routes: readonly LlmCatalogEntry[];\n    models: readonly LlmCatalogEntry[];\n    credentialEnv?: string;\n}',
   },
   {
     name: 'LlmProviderInfo',

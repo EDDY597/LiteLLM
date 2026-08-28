@@ -39,7 +39,8 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
+  ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata,
+  SessionProjectionsBlock, SessionRoutingSection, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
@@ -315,6 +316,42 @@ async function buildModelCatalog(ctx: Context): Promise<{
     groups: catalog.flatMap(item => item.kind === 'group' ? [item.group] : []).filter(group => group.models.length > 0),
     failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),
   }
+}
+
+/**
+ * Project every configurable provider's declared catalog slice into the
+ * session directory's optional `routing` block. A provider whose catalog
+ * lookup failed contributes nothing — its failure row already explains why —
+ * and credential readiness reads the shared reference through the credentials
+ * service (presence only, never the value); an absent credentials service
+ * means "unknown, assume ready" because no path could have enforced a key.
+ */
+async function buildRoutingSections(ctx: Context, groups: readonly ModelProviderGroup[]): Promise<SessionRoutingSection[]> {
+  const declared = ctx.llm.listConfigurableProviders().filter(entry => entry.catalog !== undefined)
+  const sections = await Promise.all(declared.map(async (entry): Promise<SessionRoutingSection | undefined> => {
+    const catalog = entry.catalog
+    if (catalog === undefined) return undefined
+    if (!groups.some(group => group.id === entry.provider)) return undefined
+    let ready = true
+    if (catalog.credentialEnv !== undefined) {
+      try {
+        const credentials = ctx.get('credentials')
+        const info = credentials === undefined ? { configured: true } : await credentials.describe(credentialRef(catalog.credentialEnv))
+        ready = info.configured
+      } catch {
+        ready = false
+      }
+    }
+    return {
+      provider: entry.provider,
+      displayName: entry.displayName,
+      credentialRequired: catalog.credentialEnv !== undefined,
+      credentialReady: ready,
+      routes: catalog.routes.map(route => ({ ...route })),
+      models: catalog.models.map(model => ({ ...model })),
+    }
+  }))
+  return sections.filter(section => section !== undefined)
 }
 
 /** Wrap an error result echoing the request's rpcId. */
@@ -2187,8 +2224,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if ('error' in found) return err(request, found.error)
         const current = selectionFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
+        const routing = await buildRoutingSections(ctx, groups)
         const routable = routeServed(current.provider)
-        return ok(request, { current: { ...current }, routable, groups, failures })
+        return ok(request, {
+          current: { ...current },
+          routable,
+          groups,
+          failures,
+          ...(routing.length > 0 ? { routing } : {}),
+        })
       },
 
       async selectModel(request) {

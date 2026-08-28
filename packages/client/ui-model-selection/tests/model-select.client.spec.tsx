@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelSelection, SessionRoutingSection } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
@@ -29,6 +29,40 @@ const reasoning = {
   defaultEffort: 'high',
 }
 
+/** The LiteLLM-style slice a routing provider publishes through the host. */
+const litellmRouting: SessionRoutingSection[] = [{
+  provider: 'litellm-gateway',
+  displayName: 'LiteLLM Gateway',
+  credentialRequired: true,
+  credentialReady: true,
+  routes: [
+    { id: 'dsh-cost', name: 'Cost Saving' },
+    { id: 'dsh-balanced', name: 'Balanced' },
+    { id: 'dsh-quality', name: 'High Quality' },
+  ],
+  models: [{ id: 'qwen3.5-plus', name: 'qwen3.5-plus' }],
+}]
+
+/** Groups mirroring that slice: one ordinary provider plus the gateway group. */
+function groupsWithGateway() {
+  return [
+    {
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning }],
+    },
+    {
+      id: 'litellm-gateway',
+      name: 'LiteLLM Gateway',
+      models: [
+        { id: 'dsh-cost', name: 'Cost Saving' },
+        { id: 'dsh-balanced', name: 'Balanced' },
+        { id: 'qwen3.5-plus', name: 'qwen3.5-plus' },
+      ],
+    },
+  ]
+}
+
 function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState {
   return {
     current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
@@ -39,6 +73,7 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
       models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning }],
     }],
     failures: [],
+    routing: [],
     status: 'ready',
     error: null,
     ...overrides,
@@ -66,20 +101,29 @@ describe('ModelSelect reasoning effort', () => {
     const trigger = screen.getByRole('button', {
       name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
     })
-    fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    // Effort lives in its OWN chip beside the model chip; its popover lists
+    // the current route's levels directly.
+    const effortChip = screen.getByRole('button', {
+      name: '选择推理等级，当前 High',
+    })
+    fireEvent.click(effortChip)
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Off', 'High', 'MaxLargest budget'])
 
-    fireEvent.click(screen.getByRole('menuitemradio', { name: /Max/ }))
+    fireEvent.click(screen.getAllByRole('menuitemradio').find(item => item.textContent?.startsWith('Max'))!)
     await waitFor(() => {
       expect(select).toHaveBeenCalledWith({
         provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         reasoningEffort: 'max',
       })
-      expect(trigger.getAttribute('aria-label')).toBe('选择模型，当前 DeepSeek-V4-Flash，推理等级 Max')
+      expect(effortChip.getAttribute('aria-label')).toBe('选择推理等级，当前 Max')
     })
+    // The model menu itself stays effort-free.
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['DeepSeek-V4-Flash'])
   })
 
   it('offers provider default only when the adapter does not configure a model default', () => {
@@ -105,9 +149,8 @@ describe('ModelSelect reasoning effort', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', {
-      name: '选择模型，当前 Model，推理等级 Default',
+      name: '选择推理等级，当前 Default',
     }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Default', 'Standard'])
   })
@@ -130,7 +173,7 @@ describe('ModelSelect reasoning effort', () => {
     expect(trigger.textContent).toContain('选择模型')
     fireEvent.click(trigger)
     expect(screen.queryByRole('menuitem', { name: /推理等级/ })).toBeNull()
-    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
     expect(screen.queryByText('removed-model')).toBeNull()
     expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
   })
@@ -158,8 +201,8 @@ describe('ModelSelect reasoning effort', () => {
       t={t}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^选择模型，当前 / }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Pro/ }))
     const toast = await screen.findByRole('alert')
     expect(toast.textContent).toContain('模型操作失败：model-unavailable: session already contains images')
@@ -180,5 +223,95 @@ describe('ModelSelect reasoning effort', () => {
 
     expect(screen.queryByRole('button')).toBeNull()
     expect(load).not.toHaveBeenCalled()
+  })
+})
+
+describe('ModelSelect routing slices', () => {
+  /** Locate a root bucket row by its leading label span; the trailing value varies. */
+  const rootCell = (label: string): HTMLElement => {
+    const hit = screen.getAllByRole('menuitem').find(el => el.children[0]?.textContent === label)
+    expect(hit, `root cell ${label}`).toBeTruthy()
+    return hit!
+  }
+
+  function renderWithRouting(current: ModelSelection | null, overrides: Partial<SessionRoutingSection> = {}) {
+    const routing = litellmRouting.map(section => ({ ...section, ...overrides }))
+    const directory = createSnapshotStore(state({
+      current,
+      groups: groupsWithGateway(),
+      routing,
+    }))
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.set(state({ ...state(), current: selection, groups: groupsWithGateway(), routing }))
+      return true
+    })
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+    return { select }
+  }
+
+  it('splits the root menu into routes / route models / DSH models and submits a route pick', () => {
+    const { select } = renderWithRouting({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High' }))
+    expect(rootCell('路由').textContent).toContain('未选择')
+    expect(rootCell('路由模型').textContent).toContain('未选择')
+    expect(rootCell('DSH模型').textContent).toContain('DeepSeek-V4-Flash')
+
+    fireEvent.click(rootCell('路由'))
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['Cost Saving', 'Balanced', 'High Quality'])
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Balanced' }))
+    expect(select).toHaveBeenCalledWith({ provider: 'litellm-gateway', model: 'dsh-balanced' })
+  })
+
+  it('keeps the routing provider out of the DSH-model pane and credits its direct models their own pane', () => {
+    renderWithRouting({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High' }))
+    fireEvent.click(rootCell('DSH模型'))
+    // Only the ordinary provider group remains.
+    expect(screen.getByText('DeepSeek')).toBeTruthy()
+    expect(screen.queryByRole('menuitemradio', { name: 'Balanced' })).toBeNull()
+  })
+
+  it('names the active route on the trigger and leaves the DSH cell unset while it runs', () => {
+    renderWithRouting({ provider: 'litellm-gateway', model: 'dsh-balanced' })
+
+    const trigger = screen.getByRole('button', { name: '选择模型，当前 Balanced' })
+    fireEvent.click(trigger)
+    expect(rootCell('路由').textContent).toContain('Balanced')
+    expect(rootCell('DSH模型').textContent).toContain('未选择')
+  })
+
+  it('disables routing entries and explains why when the shared credential is unresolved', () => {
+    renderWithRouting(
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      { credentialReady: false },
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High' }))
+    fireEvent.click(rootCell('路由'))
+    expect(screen.getByText(zh['routing.noCredential'])).toBeTruthy()
+    for (const item of screen.getAllByRole('menuitemradio')) {
+      expect(item.hasAttribute('disabled')).toBe(true)
+    }
+  })
+
+  it('submits a direct routing-provider model from the 路由模型 pane', async () => {
+    const { select } = renderWithRouting({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+
+    fireEvent.click(screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High' }))
+    fireEvent.click(rootCell('路由模型'))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'qwen3.5-plus' }))
+    await waitFor(() => {
+      expect(select).toHaveBeenCalledWith({ provider: 'litellm-gateway', model: 'qwen3.5-plus' })
+    })
   })
 })

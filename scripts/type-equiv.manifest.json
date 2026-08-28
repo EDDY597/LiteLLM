@@ -1659,6 +1659,15 @@
       "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmConfigurableProvider",
       "source": "packages/llm/llm/src/types.ts"
+    },    {
+      "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "LlmCatalogEntry",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/llm-streaming.md",
+      "symbol": "LlmProviderCatalog",
+      "source": "packages/llm/llm/src/types.ts"
     },
     {
       "doc": "docs/subsystems/settings.md",

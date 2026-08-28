@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "files": ["src/config.ts", "src/index.ts", "src/invariant.ts", "src/model-info.ts", "src/plans.ts", "src/types.ts", "src/usage.ts"],
+  "references": [
+    { "path": "../../../vendor/cosmokit" },
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../attachment/attachment" },
+    { "path": "../../credentials/credentials" },
+    { "path": "../../util/launch-environment" },
+    { "path": "../../runtime-diagnostics/invariants" },
+    { "path": "../../llm/llm" },
+    { "path": "../../llm/llm-pi-ai" },
+    { "path": "../../settings/settings" },
+    { "path": "../../typert/protocol" }
+  ]
+}

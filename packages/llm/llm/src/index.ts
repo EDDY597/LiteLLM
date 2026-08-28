@@ -9,6 +9,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type {
   GenerateOptions,
+  LlmCatalogEntry,
   LlmConfigurableProvider,
   LlmDiscoveredModel,
   LlmFailure,
@@ -479,7 +480,7 @@ export class LlmRuntime extends Service {
           || detached.some(seen => seen.provider === entry.provider)) {
           throw new LlmError(`configurable provider "${entry.provider}" is already declared`, 'DUPLICATE_DIRECTORY')
         }
-        detached.push({ ...entry, settingsPath: [...entry.settingsPath] })
+        detached.push(detachConfigurableProvider(entry))
       }
       for (const entry of held) this.directory.delete(entry.provider)
       for (const entry of detached) this.directory.set(entry.provider, entry)
@@ -515,7 +516,7 @@ export class LlmRuntime extends Service {
    * @returns detached directory entries in declaration order.
    */
   listConfigurableProviders(): LlmConfigurableProvider[] {
-    return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
+    return [...this.directory.values()].map(detachConfigurableProvider)
   }
 
   /**
@@ -1007,6 +1008,44 @@ function adapterFailureChunk(error: unknown, signal?: AbortSignal): StreamChunk 
     reason: signal?.aborted || failure.code === 'ABORTED'
       ? { kind: 'aborted', failure }
       : { kind: 'error', failure },
+  }
+}
+
+/** Validate one catalog entry list: non-empty ids and names, no duplicate id. */
+function validateCatalogEntries(list: readonly LlmCatalogEntry[], label: string, provider: string): void {
+  const ids = new Set<string>()
+  for (const entry of list) {
+    if (entry.id.length === 0 || entry.name.length === 0) {
+      throw new LlmError(`configurable provider "${provider}" catalog ${label} need a non-empty id and name`, 'INVALID_DIRECTORY')
+    }
+    if (ids.has(entry.id)) {
+      throw new LlmError(`configurable provider "${provider}" catalog ${label} declare "${entry.id}" twice`, 'INVALID_DIRECTORY')
+    }
+    ids.add(entry.id)
+  }
+}
+
+/**
+ * Validate a configurable provider's declared catalog slice (loud at
+ * registration, per the misconfiguration rule) and detach the arrays so later
+ * publisher mutations cannot reach stored directory state.
+ */
+function detachConfigurableProvider(entry: LlmConfigurableProvider): LlmConfigurableProvider {
+  const catalog = entry.catalog
+  if (catalog === undefined) return { ...entry, settingsPath: [...entry.settingsPath] }
+  validateCatalogEntries(catalog.routes, 'routes', entry.provider)
+  validateCatalogEntries(catalog.models, 'models', entry.provider)
+  if (catalog.credentialEnv !== undefined && catalog.credentialEnv.length === 0) {
+    throw new LlmError(`configurable provider "${entry.provider}" catalog credentialEnv must be non-empty when present`, 'INVALID_DIRECTORY')
+  }
+  return {
+    ...entry,
+    settingsPath: [...entry.settingsPath],
+    catalog: {
+      routes: catalog.routes.map(route => ({ ...route })),
+      models: catalog.models.map(model => ({ ...model })),
+      ...catalog.credentialEnv === undefined ? {} : { credentialEnv: catalog.credentialEnv },
+    },
   }
 }
 

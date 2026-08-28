@@ -49,6 +49,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/llm-litellm-gateway/tsconfig.json"
+    },
+    {
       "path": "../../preset/agent-presets"
     },
     {

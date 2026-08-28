@@ -12,7 +12,8 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
+  ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionRoutingSection,
+  SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -187,6 +188,16 @@ export const modelCatalogFailureSchema = z.object({
   message: z.string(),
 }) satisfies z.ZodType<Wire<ModelCatalogFailure>>
 
+/** One provider-declared routing slice. */
+export const sessionRoutingSectionSchema = z.object({
+  provider: z.string().min(1),
+  displayName: z.string().min(1),
+  credentialRequired: z.boolean(),
+  credentialReady: z.boolean(),
+  routes: z.array(modelCatalogModelSchema),
+  models: z.array(modelCatalogModelSchema),
+}) satisfies z.ZodType<Wire<SessionRoutingSection>>
+
 /**
  * ToolEventView passthrough: lock only the `for` discriminant and the presence
  * of a card-tagged `view` object. The view interior is a host-computed product
@@ -253,6 +264,7 @@ export const sessionModelsValueSchema = z.object({
   routable: z.boolean(),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
+  routing: z.array(sessionRoutingSectionSchema).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.models'>>>
 
 /** session.selectModel request payload. */
