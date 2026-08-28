@@ -3,6 +3,25 @@
   min-width: 0;
 }
 
+/* Model chip and effort chip sit side by side; the effort popover anchors to
+   its own wrapper so the two menus open independently. */
+.triggerRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.effortRoot {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.effortTrigger {
+  max-width: 140px;
+  padding: 0 8px;
+}
+
 /* Figma 313:14108 ToggleButton: 13/20 medium secondary label, 4px gap,
    12px caption chevron; 28px chip height matches the sibling Plan /
    Read-only selects in the same tool row. */

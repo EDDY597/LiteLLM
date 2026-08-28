@@ -33,6 +33,8 @@ The same card includes a process-local usage dashboard. It reports request outco
 
 The same refresh also fills the Plans & balances panel. Configure `plans` entries naming the LiteLLM billing objects to track — `{ id, name?, kind: 'key' | 'budget', target }` where `target` is the api key value or `budget_id` — and each refresh queries the gateway's admin endpoints (`/key/info`, `/budget/info`) with the same master-key credential as requests. Per-entry failures list under the table while sound rows stay readable; a missing credential fails the whole read loudly. The panel shows spend against the cap plus the remainder and reset time when a budget exists — exactly what LiteLLM accounts, nothing more.
 
+A live /model/info refresh also merges the gateway's real model names into the route provider's directory (the 路由模型 bucket and the model picker), so discovered models like deepseek-v4-flash appear without hand-editing models config.
+
 The plugin also contributes a plain-text badge to the composer tool row's left seat (`conversation.input.left`, beside the attach control). Once at least one completed response carried an upstream model name, the badge shows that concrete id — for example `qwen3.5-plus` — under the `badge.tip` tooltip; it renders nothing before then and refreshes when the owning session finishes a turn. The value rides this plugin's own `litellmGateway.activeModel` Remote over the shared ledger above; nothing but the name crosses the wire.
 
 ## Model selection surface

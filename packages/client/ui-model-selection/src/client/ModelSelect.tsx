@@ -1,11 +1,12 @@
 /**
  * ModelSelect: the composer's named model seat (`conversation.input.model`).
- * Two-level selection per figma 496:26454's MenuDropdown. The root menu lists
- * the directory's buckets — Routes / Route models (a provider-declared
- * routing slice riding `SessionModels.routing`) and DSH models (every other
- * provider group) — each drilling into its own list. Reasoning-effort levels
- * merge into the model lists themselves: they render as an indented subgroup
- * directly beneath whichever model row is currently selected.
+ * The model chip opens a two-level menu whose root lists the directory's
+ * buckets — Routes / Route models (a provider-declared routing slice riding
+ * `SessionModels.routing`) and DSH models (every other provider group) — each
+ * drilling into its own provider-grouped list. Reasoning-effort levels live in
+ * their OWN chip to the right of the model chip: it appears only while the
+ * current route exposes reasoning metadata and opens the effort radio list
+ * directly, never nested inside the model menu.
  *
  * Data and submission ride the SAME per-session ModelDirectory as the /model
  * popup; exact-model reasoning metadata and the selected effort come from the
@@ -29,7 +30,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
-/** Which pane the dropdown shows: the bucket row set or one drilled-in list. */
+/** Which pane the model menu shows: the bucket row set or one drilled-in list. */
 type Pane = 'root' | 'routes' | 'routeModels' | 'dsh'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
@@ -80,6 +81,9 @@ export function ModelSelect(
   )
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
+  const [effortOpen, setEffortOpen] = useState(false)
+  const effortTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const effortMenuRef = useRef<HTMLDivElement | null>(null)
   // The in-menu error strip serves catalog loads (its Retry re-runs the
   // load); a rejected SELECTION announces through the transient toast
   // instead, so the strip renders only while the latest failure-capable
@@ -143,13 +147,21 @@ export function ModelSelect(
   }, [available, load])
 
   useEffect(() => {
-    if (!open) return
+    if (!open && !effortOpen) return
     const closeOutside = (event: MouseEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as Node
+      if (open && !rootRef.current?.contains(target)) setOpen(false)
+      if (effortOpen && !effortMenuRef.current?.contains(target) && effortTriggerRef.current !== target) {
+        setEffortOpen(false)
+      }
     }
     document.addEventListener('mousedown', closeOutside)
     return () => { document.removeEventListener('mousedown', closeOutside) }
-  }, [open])
+  }, [open, effortOpen])
+
+  // A model switch re-reads the effort levels; close the popover so it never
+  // shows the previous route's levels.
+  useEffect(() => { setEffortOpen(false) }, [state.current?.provider, state.current?.model])
 
   if (!available) return null
 
@@ -246,73 +258,36 @@ export function ModelSelect(
       ? t('trigger.aria', { model: modelLabel })
       : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
 
-  /**
-   * Indented effort subgroup rendered directly beneath the currently selected
-   * model row when that route exposes reasoning levels.
-   */
-  const renderEffortSubrows = (provider: string, model: ModelCatalogModel): ReactNode => {
-    if (model.reasoning === undefined || !matchesCurrent(provider, model.id)) return null
-    const levels = effortsOf(model.reasoning, t('effort.providerDefault'))
-    return (
-      <div className={css.effortGroup} role="group" aria-label={t('menu.effort')}>
-        {levels.map(level => (
-          <button
-            ref={itemRef()}
-            type="button"
-            role="menuitemradio"
-            aria-checked={effectiveEffort === level.effort}
-            className={clsx(css.option, css.effortOption, effectiveEffort === level.effort && css.selected)}
-            key={level.key}
-            disabled={busy}
-            onClick={() => { chooseEffort(level.effort) }}
-          >
-            <span className={css.optionCopy}>
-              <span className={css.modelName}>{level.label}</span>
-              {level.description !== undefined && (
-                <span className={css.description}>{level.description}</span>
-              )}
-            </span>
-            <span className={css.check}>
-              {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
-            </span>
-          </button>
-        ))}
-      </div>
-    )
-  }
-
   /** One selectable routing entry row; credential-gated entries stay visible but inert. */
   const renderRoutingItem = ({ section, model }: RoutingEntry): ReactNode => {
     const gated = section.credentialRequired && !section.credentialReady
     const selected = matchesCurrent(section.provider, model.id)
     return (
-      <Fragment key={`${section.provider}/${model.id}`}>
-        <button
-          ref={itemRef()}
-          type="button"
-          role="menuitemradio"
-          aria-checked={selected}
-          className={clsx(css.option, selected && css.selected)}
-          title={model.name}
-          disabled={busy || gated}
-          onClick={() => { choose({ provider: section.provider, model: model.id }) }}
-        >
-          <span className={css.optionCopy}>
-            <span className={css.modelName}>{model.name}</span>
-            {model.description !== undefined && (
-              <span className={css.description}>{model.description}</span>
-            )}
-          </span>
-          <span className={css.check}>
-            {selected ? <IconCheckOutline16 /> : null}
-          </span>
-        </button>
-        {renderEffortSubrows(section.provider, model)}
-      </Fragment>
+      <button
+        ref={itemRef()}
+        type="button"
+        role="menuitemradio"
+        aria-checked={selected}
+        className={clsx(css.option, selected && css.selected)}
+        title={model.name}
+        disabled={busy || gated}
+        key={`${section.provider}/${model.id}`}
+        onClick={() => { choose({ provider: section.provider, model: model.id }) }}
+      >
+        <span className={css.optionCopy}>
+          <span className={css.modelName}>{model.name}</span>
+          {model.description !== undefined && (
+            <span className={css.description}>{model.description}</span>
+          )}
+        </span>
+        <span className={css.check}>
+          {selected ? <IconCheckOutline16 /> : null}
+        </span>
+      </button>
     )
   }
 
-  /** One DSH provider-group row list; the selected model may expose its effort subgroup. */
+  /** One DSH provider-group row list. */
   const renderDshGroup = (group: (typeof dshGroups)[number]): ReactNode => {
     const headingId = `${id}-${group.id}`
     return (
@@ -321,29 +296,27 @@ export function ModelSelect(
         {group.models.map((model) => {
           const selected = matchesCurrent(group.id, model.id)
           return (
-            <Fragment key={model.id}>
-              <button
-                ref={itemRef()}
-                type="button"
-                role="menuitemradio"
-                aria-checked={selected}
-                className={clsx(css.option, selected && css.selected)}
-                title={model.name}
-                disabled={busy}
-                onClick={() => { choose({ provider: group.id, model: model.id }) }}
-              >
-                <span className={css.optionCopy}>
-                  <span className={css.modelName}>{model.name}</span>
-                  {model.description !== undefined && (
-                    <span className={css.description}>{model.description}</span>
-                  )}
-                </span>
-                <span className={css.check}>
-                  {selected ? <IconCheckOutline16 /> : null}
-                </span>
-              </button>
-              {renderEffortSubrows(group.id, model)}
-            </Fragment>
+            <button
+              ref={itemRef()}
+              type="button"
+              role="menuitemradio"
+              aria-checked={selected}
+              className={clsx(css.option, selected && css.selected)}
+              title={model.name}
+              disabled={busy}
+              key={model.id}
+              onClick={() => { choose({ provider: group.id, model: model.id }) }}
+            >
+              <span className={css.optionCopy}>
+                <span className={css.modelName}>{model.name}</span>
+                {model.description !== undefined && (
+                  <span className={css.description}>{model.description}</span>
+                )}
+              </span>
+              <span className={css.check}>
+                {selected ? <IconCheckOutline16 /> : null}
+              </span>
+            </button>
           )
         })}
       </section>
@@ -415,28 +388,89 @@ export function ModelSelect(
 
   return (
     <div ref={rootRef} className={css.root} onKeyDown={onRootKeyDown} onBlur={onBlur}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className={css.trigger}
-        aria-label={triggerAria}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? `${id}-menu` : undefined}
-        title={triggerLabel(modelLabel, effortLabel)}
-        disabled={locked}
-        onClick={() => {
-          if (open) {
-            close()
-          } else {
-            show()
-          }
-        }}
-      >
-        <span className={css.triggerLabel}>{modelLabel}</span>
-        {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
-        <IconChevronDownOutline14 className={clsx(css.chevron, open && css.chevronOpen)} />
-      </button>
+      <div className={css.triggerRow}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className={css.trigger}
+          aria-label={triggerAria}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? `${id}-menu` : undefined}
+          title={triggerLabel(modelLabel, effortLabel)}
+          disabled={locked}
+          onClick={() => {
+            setEffortOpen(false)
+            if (open) {
+              close()
+            } else {
+              show()
+            }
+          }}
+        >
+          <span className={css.triggerLabel}>{modelLabel}</span>
+          <IconChevronDownOutline14 className={clsx(css.chevron, open && css.chevronOpen)} />
+        </button>
+
+        {reasoning !== undefined && (
+          <div className={css.effortRoot} ref={effortMenuRef}>
+            <button
+              ref={effortTriggerRef}
+              type="button"
+              className={clsx(css.trigger, css.effortTrigger)}
+              aria-label={t('effort.chipAria', {
+                effort: effortLabel ?? t('effort.providerDefault'),
+              })}
+              aria-haspopup="menu"
+              aria-expanded={effortOpen}
+              title={t('effort.chipTitle', { effort: effortLabel ?? t('effort.providerDefault') })}
+              disabled={locked}
+              onClick={() => {
+                setOpen(false)
+                setEffortOpen(state => !state)
+              }}
+            >
+              <span className={css.triggerEffort}>{effortLabel ?? t('effort.providerDefault')}</span>
+              <IconChevronDownOutline14 className={clsx(css.chevron, effortOpen && css.chevronOpen)} />
+            </button>
+            {effortOpen && (
+              <div
+                id={`${id}-effort-menu`}
+                className={css.menu}
+                role="menu"
+                aria-label={t('menu.effort')}
+                aria-busy={busy}
+              >
+                {effortsOf(reasoning, t('effort.providerDefault')).map(level => (
+                  <button
+                    ref={itemRef()}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={effectiveEffort === level.effort}
+                    className={clsx(css.option, effectiveEffort === level.effort && css.selected)}
+                    key={level.key}
+                    disabled={busy}
+                    onClick={() => {
+                      setEffortOpen(false)
+                      chooseEffort(level.effort)
+                    }}
+                  >
+                    <span className={css.optionCopy}>
+                      <span className={css.modelName}>{level.label}</span>
+                      {level.description !== undefined && (
+                        <span className={css.description}>{level.description}</span>
+                      )}
+                    </span>
+                    <span className={css.check}>
+                      {effectiveEffort === level.effort ? <IconCheckOutline16 /> : null}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {open && (
         <div

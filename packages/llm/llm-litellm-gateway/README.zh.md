@@ -33,6 +33,8 @@ DSH 重试策略只允许 `normal` 且 `maxRetries: 0`。pi-ai SDK 同样只尝�
 
 同一刷新动作还会填充「套餐与余额」面板。在配置里添加 `plans` 条目即可跟踪 LiteLLM 计费对象——`{ id, name?, kind: 'key' | 'budget', target }`，其中 `target` 是 api key 值或 `budget_id`——每次刷新会用与请求相同的 master key 凭据查询网关管理端点（`/key/info`、`/budget/info`）。单条失败会列在表格下方而不影响其他行；凭据缺失会让整次读取高声失败。面板展示已用、上限以及存在预算时的剩余额度和重置时间——即 LiteLLM 自己记账的内容，不多不少。
 
+一次 /model/info 的实时刷新还会把网关真实模型名并入该路由提供方的目录（「路由模型」分组与模型选择器），deepseek-v4-flash 这类发现的模型无需手改 models 配置即可出现。
+
 插件还会在 composer 工具行左端座位（`conversation.input.left`，附件控件旁）贡献一个纯文本徽标。只要最近一次完成的响应带出了上游模型名，徽标就会显示该具体 id（例如 `qwen3.5-plus`），悬停提示为 `badge.tip`；在此之前不渲染任何内容，并在所属会话结束一轮后刷新。取值走本插件自己的 `litellmGateway.activeModel` Remote，与上方共享账本；跨线传输的只有模型名。
 
 ## 模型选择界面

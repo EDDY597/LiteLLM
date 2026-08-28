@@ -173,6 +173,11 @@ export interface LiteLlmGatewayRemoteDeps {
    * numbers without authentication would be misleading, not degraded.
    */
   readPlans: () => Promise<LiteLlmPlansSnapshot>
+  /**
+   * Translate a routed alias into the concrete upstream name the gateway
+   * serves for it, from the live `/model/info` listing.
+   */
+  mapUpstream: (modelName: string) => string | undefined
 }
 
 /** Host Remote exposing the process-local LiteLLM usage projection and plan balances. */
@@ -194,11 +199,16 @@ export class LiteLlmGatewayRemote extends TypertRemoteService {
 
   /**
    * Read the router's latest concrete model reading without exposing the gateway key.
+   * The response body only echoes the routed alias, so the reading is upgraded
+   * to the upstream name via the live model listing when it knows the alias.
    * @returns the detached reading, or null before the first completed response.
    */
   @Remote('activeModel')
   activeModel(): LiteLlmActiveModel | null {
-    return this.deps.ledger.currentActive()
+    const active = this.deps.ledger.currentActive()
+    if (active === null) return null
+    const upstream = this.deps.mapUpstream(active.model)
+    return upstream === undefined ? active : { ...active, responseModel: upstream }
   }
 
   /**

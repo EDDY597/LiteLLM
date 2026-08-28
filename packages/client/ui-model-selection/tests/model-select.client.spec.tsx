@@ -101,13 +101,14 @@ describe('ModelSelect reasoning effort', () => {
     const trigger = screen.getByRole('button', {
       name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
     })
-    fireEvent.click(trigger)
-    // Effort has no root row anymore: it lives under the selected model row
-    // inside the drilled model pane.
-    fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
-    // The selected model row leads; its merged effort subgroup follows.
+    // Effort lives in its OWN chip beside the model chip; its popover lists
+    // the current route's levels directly.
+    const effortChip = screen.getByRole('button', {
+      name: '选择推理等级，当前 High',
+    })
+    fireEvent.click(effortChip)
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
-      .toEqual(['DeepSeek-V4-Flash', 'Off', 'High', 'MaxLargest budget'])
+      .toEqual(['Off', 'High', 'MaxLargest budget'])
 
     fireEvent.click(screen.getAllByRole('menuitemradio').find(item => item.textContent?.startsWith('Max'))!)
     await waitFor(() => {
@@ -116,8 +117,13 @@ describe('ModelSelect reasoning effort', () => {
         model: 'deepseek-v4-flash',
         reasoningEffort: 'max',
       })
-      expect(trigger.getAttribute('aria-label')).toBe('选择模型，当前 DeepSeek-V4-Flash，推理等级 Max')
+      expect(effortChip.getAttribute('aria-label')).toBe('选择推理等级，当前 Max')
     })
+    // The model menu itself stays effort-free.
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['DeepSeek-V4-Flash'])
   })
 
   it('offers provider default only when the adapter does not configure a model default', () => {
@@ -143,11 +149,10 @@ describe('ModelSelect reasoning effort', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', {
-      name: '选择模型，当前 Model，推理等级 Default',
+      name: '选择推理等级，当前 Default',
     }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
-      .toEqual(['Model', 'Default', 'Standard'])
+      .toEqual(['Default', 'Standard'])
   })
 
   it('prompts for a selection when the current model is no longer advertised', () => {
@@ -196,7 +201,7 @@ describe('ModelSelect reasoning effort', () => {
       t={t}
     />)
 
-    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^选择模型，当前 / }))
     fireEvent.click(screen.getByRole('menuitem', { name: /DSH模型/ }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: /DeepSeek-V4-Pro/ }))
     const toast = await screen.findByRole('alert')
