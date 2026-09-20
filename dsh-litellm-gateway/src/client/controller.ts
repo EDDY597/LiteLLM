@@ -3,7 +3,8 @@
 import type { SettingsScope, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { LiteLlmModel, LiteLlmRoutes } from '../config.ts'
-import type { LiteLlmUsageSnapshot } from '../usage.ts'
+import type { LiteLlmActiveModel, LiteLlmUsageSnapshot } from '../usage.ts'
+import type { LiteLlmPlansSnapshot } from '../plans.ts'
 
 /** Settings fields served by the LiteLLM namespace. */
 export interface LiteLlmSettings {
@@ -24,11 +25,14 @@ export interface LiteLlmGatewayState {
   failed: boolean
   fields: Record<'provider' | 'baseURL' | 'apiKeyEnv' | 'models' | 'cost' | 'balanced' | 'quality', { text: string; overridden: boolean; invalid: boolean }>
   usage: { status: 'cold' | 'loading' | 'ready' | 'error'; value: LiteLlmUsageSnapshot | null }
+  plans: { status: 'cold' | 'loading' | 'ready' | 'error'; value: LiteLlmPlansSnapshot | null }
 }
 
 /** Remote shape used by the controller; generated Remote results preserve transport failures. */
 export interface LiteLlmUsageRemote {
   usage: () => Promise<{ ok: true; value: LiteLlmUsageSnapshot } | { ok: false; error: { code: string; message: string } }>
+  activeModel: () => Promise<{ ok: true; value: LiteLlmActiveModel | null } | { ok: false; error: { code: string; message: string } }>
+  plans: () => Promise<{ ok: true; value: LiteLlmPlansSnapshot } | { ok: false; error: { code: string; message: string } }>
 }
 
 /** Injected actions and state hook for the card slot. */
@@ -41,18 +45,20 @@ export interface LiteLlmGatewayFace {
   refreshUsage: () => void
 }
 
+/** Card form defaults mirrored from the host configuration defaults. */
 const DEFAULTS = { provider: 'litellm-gateway', baseURL: 'http://127.0.0.1:4000/v1', apiKeyEnv: 'LITELLM_MASTER_KEY', cost: 'dsh-cost', balanced: 'dsh-balanced', quality: 'dsh-quality' }
 type Field = keyof LiteLlmGatewayState['fields']
 
 function textOf(value: unknown): string { return typeof value === 'string' ? value : '' }
 function jsonOf(value: unknown): string { return Array.isArray(value) ? JSON.stringify(value, null, 2) : '' }
 
-/** Owns drafts and usage reads for one LiteLLM settings namespace. */
+/** Owns drafts and dashboard reads for one LiteLLM settings namespace. */
 export class LiteLlmGatewayController {
   private readonly drafts = new Map<Field, string>()
   private saving = false
   private failed = false
   private usageState: LiteLlmGatewayState['usage'] = { status: 'cold', value: null }
+  private plansState: LiteLlmGatewayState['plans'] = { status: 'cold', value: null }
   private readonly store: SnapshotStore<LiteLlmGatewayState>
 
   constructor(private readonly scope: SettingsScope<LiteLlmSettings>, private readonly remote: LiteLlmUsageRemote) {
@@ -60,6 +66,11 @@ export class LiteLlmGatewayController {
     scope.subscribe(() => { this.store.set(this.project()) })
   }
 
+  /**
+   * Expose the card's injected face: the shared state store plus the editing,
+   * save/discard, and dashboard-refresh actions.
+   * @returns the face consumed by the settings card slot.
+   */
   inject(): LiteLlmGatewayFace {
     return {
       hooks: { liteLlmGateway: this.store },
@@ -91,7 +102,17 @@ export class LiteLlmGatewayController {
   private project(): LiteLlmGatewayState {
     const fields = Object.fromEntries((['provider', 'baseURL', 'apiKeyEnv', 'models', 'cost', 'balanced', 'quality'] as Field[]).map(field => [field, this.field(field)])) as LiteLlmGatewayState['fields']
     const invalid = Object.values(fields).some(item => item.invalid)
-    return { available: this.scope.getSnapshot().status === 'ready', writable: this.scope.getSnapshot().writable, dirty: this.drafts.size > 0, saving: this.saving, invalid, failed: this.failed, fields, usage: this.usageState }
+    return {
+      available: this.scope.getSnapshot().status === 'ready',
+      writable: this.scope.getSnapshot().writable,
+      dirty: this.drafts.size > 0,
+      saving: this.saving,
+      invalid,
+      failed: this.failed,
+      fields,
+      usage: this.usageState,
+      plans: this.plansState,
+    }
   }
 
   private async save(): Promise<void> {
@@ -115,14 +136,20 @@ export class LiteLlmGatewayController {
   }
 
   private async refreshUsage(): Promise<void> {
-    this.usageState = { status: 'loading', value: this.usageState.value }; this.store.set(this.project())
-    try {
-      const result = await this.remote.usage()
-      this.usageState = result.ok ? { status: 'ready', value: result.value } : { status: 'error', value: null }
-    } catch { this.usageState = { status: 'error', value: null } }
+    this.usageState = { status: 'loading', value: this.usageState.value }
+    this.plansState = { status: 'loading', value: this.plansState.value }
+    this.store.set(this.project())
+    // One refresh serves both dashboards; each settles independently so a
+    // balance failure never blanks usage counters or vice versa.
+    const [usage, plans] = await Promise.allSettled([this.remote.usage(), this.remote.plans()])
+    this.usageState = usage.status === 'fulfilled' && usage.value.ok
+      ? { status: 'ready', value: usage.value.value }
+      : { status: 'error', value: null }
+    this.plansState = plans.status === 'fulfilled' && plans.value.ok
+      ? { status: 'ready', value: plans.value.value }
+      : { status: 'error', value: null }
     this.store.set(this.project())
   }
 }
 
 export { DEFAULTS }
-

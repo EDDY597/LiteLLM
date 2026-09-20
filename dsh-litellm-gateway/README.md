@@ -31,6 +31,16 @@ When the browser half is installed, the Plugins settings page adds a dedicated L
 
 The same card includes a process-local usage dashboard. It reports request outcomes and disjoint input/output/cache token buckets by the virtual model selected by DSH, with a refresh action and an empty state. Counters reset when the Host process restarts; persistent spend and the actual upstream model remain LiteLLM concerns.
 
+The same refresh fills the Plans & balances panel from LiteLLM's `/global/spend/report` for the last 30 days and lists every live deployment without extra configuration. This report requires a LiteLLM database; when none is connected, model rows show unavailable amounts and the card names that prerequisite instead of displaying invented zeros. Optional `plans` entries — `{ id, name?, kind: 'key' | 'budget', target }` — add caps, remaining amounts, and reset times from `/key/info` or `/budget/info`. Per-source failures stay below sound rows, and all reads use the same master-key credential as model traffic.
+
+A live `/model/info` refresh merges direct deployments into the route provider's directory. The selector submits LiteLLM's stable deployment id while displaying the concrete upstream name; names equal under case-insensitive comparison stay adjacent, and only collisions gain a supplier prefix such as `opencode/deepseek-v4-flash`. This keeps similarly named deployments distinguishable and directly selectable without hand-editing `models`.
+
+The plugin also contributes a plain-text badge to the composer tool row's left seat (`conversation.input.left`, beside the attach control). pi-ai exposes LiteLLM's response headers to the plugin; `x-litellm-model-id` resolves through the live deployment listing, and the label is committed only when that stream completes successfully. The badge renders nothing before the first exact deployment reading and refreshes when the owning session finishes a turn. Its value rides `litellmGateway.activeModel`; only the display name crosses the wire.
+
+## Model selection surface
+
+The provider publishes its declared routing slice through the configurable-provider directory (`LlmConfigurableProvider.catalog`): the cost/balanced/quality aliases in order (tiers aimed at one id collapse to one entry), the direct models left after removing those aliases, and the shared `credentialEnv` reference. Selection surfaces use this to split the model menu into Routes, Route models, and DSH models panes and to mark entries unavailable while the credential reference does not resolve. Selecting any entry still submits the plain provider/model pair; membership stays advisory and validation belongs to the adapter as before.
+
 ## Model Experience
 
 ### LiteLLM virtual-model request
@@ -50,5 +60,7 @@ The plugin preserves the assembled request prefix passed to the adapter. Changin
 ## Known Limitations and Deferred Work
 
 - **Quick answer is not exposed** — DSH has no native path that can replace a full Agent step with a zero-prefix model call while recording the actual model, independent `quickAnswer` usage, and replayable session events. An `llm/stream` wrapper would misattribute the response to the selected full-task alias, so the plugin leaves this feature disabled by absence.
-- **Actual routing is audited in LiteLLM** — DSH records `dsh-cost`, `dsh-balanced`, or `dsh-quality`, not the internal `easy`, `strong`, or `premium` backend selected by the gateway.
-- **The model catalog is configured, not discovered** — the four defaults are deployment assumptions; context windows, output limits, and additional virtual models must be written in settings after gateway validation.
+- **Upstream visibility is process-wide** — the composer badge names the exact deployment from the last successfully completed gateway response carrying `x-litellm-model-id`; it is not per-session attribution. A response without that header leaves the previous reading. LiteLLM logs remain the authority for tiers, classification reasons, and fallback chains.
+- **Balances require LiteLLM accounting** — cumulative per-model spend requires a LiteLLM database, and remaining amounts require corresponding key or budget caps. The master key cannot reveal subscription quotas held only by an upstream provider; those quotas must be exposed or mirrored by LiteLLM before DSH can display them.
+- **Discovered deployments supplement configured models** — `/model/info` supplies stable deployment ids and display names; context windows and output limits still come from explicit `models` entries when the deployment needs non-default values.
+- **Route labels follow configuration** — route entries display the `models[].name` of the matching alias or fall back to the alias id itself; localized labels live in the settings card only.

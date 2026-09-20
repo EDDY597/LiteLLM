@@ -33,7 +33,7 @@ async function boot(): Promise<Context> {
 }
 
 describe('LiteLLM gateway lifecycle', () => {
-  it('registers the default route and removes it with the plugin fiber', async () => {
+  it('registers the default route, publishes its routing catalog, and removes both with the fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     const fiber = ctx.plugin(LiteLlmGateway, {})
@@ -44,6 +44,21 @@ describe('LiteLLM gateway lifecycle', () => {
       'deepseek-main', 'dsh-cost', 'dsh-balanced', 'dsh-quality',
     ])
     expect(ctx.llm.providerRetryPolicy('litellm-gateway')).toMatchObject({ mode: 'normal', maxRetries: 0 })
+    expect(ctx.llm.listConfigurableProviders()).toEqual([{
+      provider: 'litellm-gateway',
+      displayName: 'LiteLLM Gateway',
+      settingsNs: NS,
+      settingsPath: [],
+      catalog: {
+        routes: [
+          { id: 'dsh-cost', name: 'Cost Saving' },
+          { id: 'dsh-balanced', name: 'Balanced' },
+          { id: 'dsh-quality', name: 'High Quality' },
+        ],
+        models: [{ id: 'deepseek-main', name: 'DeepSeek Main' }],
+        credentialEnv: 'LITELLM_MASTER_KEY',
+      },
+    }])
 
     await fiber.dispose()
     expect(ctx.llm.listProviders()).toEqual([])
@@ -71,12 +86,19 @@ describe('LiteLLM gateway lifecycle', () => {
       context: { contextWindow: 131_072 },
       defaultMaxTokens: 8_192,
     })
-    expect(ctx.llm.listConfigurableProviders()).toContainEqual({
+    // Every alias points at one id here, so it is a route first and appears
+    // exactly once — in the routes slice.
+    expect(ctx.llm.listConfigurableProviders()).toEqual([{
       provider: 'private-litellm',
       displayName: 'LiteLLM Gateway',
-      settingsNs: 'llm-litellm-gateway',
+      settingsNs: NS,
       settingsPath: [],
-    })
+      catalog: {
+        routes: [{ id: 'gateway-main', name: 'gateway-main' }],
+        models: [],
+        credentialEnv: 'LITELLM_MASTER_KEY',
+      },
+    }])
     await ctx.fiber.dispose()
   })
 })

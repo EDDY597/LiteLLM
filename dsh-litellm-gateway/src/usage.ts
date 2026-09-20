@@ -3,6 +3,7 @@
 import type { GenerateOptions, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
+import type { LiteLlmPlansSnapshot } from './plans.ts'
 
 /** One virtual-model usage row shown by the LiteLLM dashboard. */
 export interface LiteLlmUsageRow {
@@ -23,6 +24,25 @@ export interface LiteLlmUsageSnapshot {
   generatedAt: number
   totals: Omit<LiteLlmUsageRow, 'provider' | 'model' | 'lastUsedAt'>
   rows: LiteLlmUsageRow[]
+  /** The router's latest concrete model reading; absent before the first completed response. */
+  active?: LiteLlmActiveModel
+}
+
+/** The gateway's most recently completed request, as the provider reported it. */
+export interface LiteLlmActiveModel {
+  /** Provider route DSH addressed. */
+  provider: string
+  /** Virtual model id DSH sent. */
+  model: string
+  /**
+   * Upstream model id the gateway response named — LiteLLM routes a virtual
+   * alias to one concrete backend per request and echoes it in the response's
+   * `model` field; surfaced here only when the transport replay metadata
+   * carries a recognizable copy.
+   */
+  responseModel?: string
+  /** Completion time of that request. */
+  at: number
 }
 
 function emptyTotals(): LiteLlmUsageSnapshot['totals'] {
@@ -44,9 +64,41 @@ function addUsage(row: LiteLlmUsageRow, usage: TokenUsage): void {
   row.cacheWriteTokens += usage.cacheWriteTokens ?? 0
 }
 
+/**
+ * Read the upstream model id from a finish chunk's replay envelope, when the
+ * transport's adapter-private metadata is a recognizable pi-ai projection.
+ * The pi-ai OpenAI-compatible path mirrors the response's `model` field — the
+ * concrete backend LiteLLM routed to — into `response.responseModel`.
+ */
+function upstreamModelOf(finish: StreamChunk | undefined): string | undefined {
+  if (finish?.type !== 'finish') return undefined
+  const state: unknown = finish.replayState
+  if (typeof state !== 'object' || state === null) return undefined
+  const response: unknown = (state as { response?: unknown }).response
+  if (typeof response !== 'object' || response === null) return undefined
+  const entry = response as Record<string, unknown>
+  if (entry['kind'] !== 'pi-ai') return undefined
+  const candidate = entry['responseModel']
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined
+}
+
 /** Mutable process-local ledger owned by one LiteLLM plugin instance. */
 export class LiteLlmUsageLedger {
   private readonly rows = new Map<string, LiteLlmUsageRow>()
+  private active: LiteLlmActiveModel | undefined
+  private readonly responseHeaders = new WeakMap<object, string>()
+
+  /** Capture LiteLLM's deployment header for this request; committed on success. */
+  observeResponse(options: GenerateOptions, response: { headers: Record<string, string> }): void {
+    const headers = response.headers
+    const candidate = headers['x-litellm-model-id'] ?? headers['x-litellm-model-name'] ?? headers['x-model']
+    if (candidate !== undefined && candidate.length > 0) this.responseHeaders.set(options as object, candidate)
+  }
+
+  /** Backward-compatible staging hook used by response observers/tests. */
+  stageResponse(options: GenerateOptions, model: string): void {
+    this.responseHeaders.set(options as object, model)
+  }
 
   /**
    * Observe one completed stream. The request is counted before dispatch and
@@ -56,6 +108,24 @@ export class LiteLlmUsageLedger {
    * @param thrown - whether iteration ended with an exception.
    */
   record(options: GenerateOptions, chunks: readonly StreamChunk[], thrown = false): void {
+    const finish = chunks.findLast(chunk => chunk.type === 'finish')
+    const bodyModel = upstreamModelOf(finish)
+    const stagedModel = this.responseHeaders.get(options as object)
+    const responseModel = bodyModel !== undefined && bodyModel !== options.model
+      ? bodyModel
+      : stagedModel
+    const failed = thrown || (finish?.type === 'finish' && (finish.reason.kind === 'error' || finish.reason.kind === 'aborted'))
+    // `active` answers "which concrete model did the router last pick", so it
+    // only moves when a completed response named one — failures keep the
+    // previous reading rather than blanking or mislabeling it.
+    if (responseModel !== undefined && !failed) {
+      this.active = {
+        provider: options.provider,
+        model: options.model,
+        responseModel,
+        at: Date.now(),
+      }
+    }
     const key = `${options.provider}\u0000${options.model}`
     let row = this.rows.get(key)
     if (row === undefined) {
@@ -77,16 +147,17 @@ export class LiteLlmUsageLedger {
     for (const chunk of chunks) {
       if (chunk.type === 'usage') addUsage(row, chunk.usage)
     }
-    const finish = chunks.findLast(chunk => chunk.type === 'finish')
-    const failed = thrown || (finish?.type === 'finish' && (finish.reason.kind === 'error' || finish.reason.kind === 'aborted'))
     if (failed) row.failures += 1
     else row.successes += 1
   }
 
-  /** Return a detached snapshot safe to send over the Remote wire. */
+  /**
+   * Return a detached snapshot safe to send over the Remote wire.
+   * @returns aggregate totals, per-model rows, and the router's latest concrete model.
+   */
   snapshot(): LiteLlmUsageSnapshot {
     const totals = emptyTotals()
-    const rows = [...this.rows.values()].map(row => {
+    const rows = [...this.rows.values()].map((row) => {
       totals.requests += row.requests
       totals.successes += row.successes
       totals.failures += row.failures
@@ -97,22 +168,72 @@ export class LiteLlmUsageLedger {
       return { ...row }
     })
     rows.sort((left, right) => (right.lastUsedAt ?? 0) - (left.lastUsedAt ?? 0))
-    return { generatedAt: Date.now(), totals, rows }
+    return { generatedAt: Date.now(), totals, rows, ...this.active === undefined ? {} : { active: { ...this.active } } }
+  }
+
+  /**
+   * The last upstream model a completed response named.
+   * @returns the detached reading, or null before the first one.
+   */
+  currentActive(): LiteLlmActiveModel | null {
+    return this.active === undefined ? null : { ...this.active }
   }
 }
 
-/** Host Remote exposing the process-local LiteLLM usage projection. */
+/** Construction dependencies of the gateway Remote, passed as one plugin argument. */
+export interface LiteLlmGatewayRemoteDeps {
+  /** Process-local usage ledger. */
+  ledger: LiteLlmUsageLedger
+  /**
+   * Read every configured billing entry's spend and cap from the gateway.
+   * A missing master-key credential fails this whole call loudly — partial
+   * numbers without authentication would be misleading, not degraded.
+   */
+  readPlans: () => Promise<LiteLlmPlansSnapshot>
+  /**
+   * Translate a routed alias into the concrete upstream name the gateway
+   * serves for it, from the live `/model/info` listing.
+   */
+  mapUpstream: (modelName: string) => string | undefined
+}
+
+/** Host Remote exposing the process-local LiteLLM usage projection and plan balances. */
 export class LiteLlmGatewayRemote extends TypertRemoteService {
   static inject = []
 
-  constructor(ctx: Context, private readonly ledger: LiteLlmUsageLedger) {
+  constructor(ctx: Context, private readonly deps: LiteLlmGatewayRemoteDeps) {
     super(ctx, 'litellmGateway')
   }
 
-  /** Read the current usage counters without exposing the gateway key. */
+  /**
+   * Read the current usage counters without exposing the gateway key.
+   * @returns the detached usage snapshot.
+   */
   @Remote('usage')
   usage(): LiteLlmUsageSnapshot {
-    return this.ledger.snapshot()
+    return this.deps.ledger.snapshot()
+  }
+
+  /**
+   * Read the router's latest concrete model reading without exposing the gateway key.
+   * The response body only echoes the routed alias, so the reading is upgraded
+   * to the upstream name via the live model listing when it knows the alias.
+   * @returns the detached reading, or null before the first completed response.
+   */
+  @Remote('activeModel')
+  activeModel(): LiteLlmActiveModel | null {
+    const active = this.deps.ledger.currentActive()
+    if (active === null) return null
+    const upstream = this.deps.mapUpstream(active.model)
+    return upstream === undefined ? active : { ...active, responseModel: upstream }
+  }
+
+  /**
+   * Wire the plans reader through to the browser as its own remote method.
+   * @returns per-entry spend and caps with isolated failures.
+   */
+  @Remote('plans')
+  plans(): Promise<LiteLlmPlansSnapshot> {
+    return this.deps.readPlans()
   }
 }
-
